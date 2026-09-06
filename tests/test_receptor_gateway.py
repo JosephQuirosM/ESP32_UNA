@@ -21,6 +21,8 @@ REGISTRO = {
     "tiempo_gateway_recepcion_ms": 1234,
     "tiempo_torre_ms": 1210,
     "torre_id": 1,
+    "sesion_torre": 321,
+    "secuencia_torre_tx": 41,
     "mac_torre": "AA:BB:CC:DD:EE:FF",
     "jugador_id": 1,
     "sesion_jugador": 789,
@@ -40,6 +42,8 @@ class PruebasReceptorGateway(unittest.TestCase):
             dict(REGISTRO, jugador_id=0),
             dict(REGISTRO, torre_id=255),
             dict(REGISTRO, sesion_jugador=0),
+            dict(REGISTRO, sesion_torre=0),
+            dict(REGISTRO, secuencia_torre_tx=0),
             dict(REGISTRO, rssi=1),
             dict(REGISTRO, rssi=-128),
         ):
@@ -47,7 +51,7 @@ class PruebasReceptorGateway(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validar_registro(registro)
 
-    def test_post_crea_csv_v2_y_cerrar_drena_lotes(self):
+    def test_post_crea_csv_v3_y_cerrar_drena_lotes(self):
         with tempfile.TemporaryDirectory() as temporal:
             ruta = Path(temporal) / "lecturas.csv"
             escritor = EscritorCsv(ruta)
@@ -59,7 +63,9 @@ class PruebasReceptorGateway(unittest.TestCase):
             conexion.request(
                 "POST",
                 "/v1/registros",
-                body=json.dumps([REGISTRO, dict(REGISTRO, secuencia=43)]),
+                body=json.dumps(
+                    [REGISTRO, dict(REGISTRO, secuencia=43, secuencia_torre_tx=42)]
+                ),
                 headers={"Content-Type": "application/json"},
             )
             self.assertEqual(conexion.getresponse().status, 202)
@@ -72,6 +78,7 @@ class PruebasReceptorGateway(unittest.TestCase):
             self.assertEqual(len(filas), 2)
             self.assertEqual(filas[0]["rssi"], "-61")
             self.assertEqual(filas[0]["sesion_gateway"], "456")
+            self.assertEqual(filas[0]["sesion_torre"], "321")
             self.assertTrue(filas[0]["timestamp_utc_pc"].endswith("Z"))
 
     def test_post_rechaza_lote_demasiado_grande(self):

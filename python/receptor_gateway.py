@@ -27,6 +27,8 @@ COLUMNAS_CSV = [
     "tiempo_gateway_recepcion_ms",
     "tiempo_torre_ms",
     "torre_id",
+    "sesion_torre",
+    "secuencia_torre_tx",
     "mac_torre",
     "jugador_id",
     "sesion_jugador",
@@ -46,7 +48,7 @@ def _entero_en_rango(registro: dict[str, Any], campo: str, minimo: int, maximo: 
 
 
 def validar_registro(registro: Any) -> dict[str, int | str]:
-    """Comprueba el contrato HTTP v2 antes de que una fila llegue al CSV."""
+    """Comprueba el contrato HTTP v3 antes de que una fila llegue al CSV."""
     if not isinstance(registro, dict):
         raise ValueError("cada registro debe ser un objeto JSON")
     resultado: dict[str, int | str] = {
@@ -56,6 +58,10 @@ def validar_registro(registro: Any) -> dict[str, int | str]:
         ),
         "tiempo_torre_ms": _entero_en_rango(registro, "tiempo_torre_ms", 0, MAXIMO_UINT32),
         "torre_id": _entero_en_rango(registro, "torre_id", 1, 254),
+        "sesion_torre": _entero_en_rango(registro, "sesion_torre", 1, MAXIMO_UINT32),
+        "secuencia_torre_tx": _entero_en_rango(
+            registro, "secuencia_torre_tx", 1, MAXIMO_UINT32
+        ),
         "jugador_id": _entero_en_rango(registro, "jugador_id", 1, 254),
         "sesion_jugador": _entero_en_rango(registro, "sesion_jugador", 1, MAXIMO_UINT32),
         "secuencia": _entero_en_rango(registro, "secuencia", 1, MAXIMO_UINT32),
@@ -153,7 +159,7 @@ class ServidorRegistros(ThreadingHTTPServer):
 
 
 class ManejadorRegistros(BaseHTTPRequestHandler):
-    """Acepta lotes JSON v2 del endpoint implementado por el Gateway."""
+    """Acepta lotes JSON v3 del endpoint implementado por el Gateway."""
 
     server: ServidorRegistros
 

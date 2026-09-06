@@ -7,7 +7,7 @@
 
 constexpr uint8_t MAC_BROADCAST[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
-// Inicializa ESP-NOW y registra el peer broadcast que usan todos los mensajes del MVP.
+// Inicializa ESP-NOW y registra el peer usado por anuncios y control broadcast.
 inline bool inicializarEspNow(wifi_interface_t interfaz) {
   if (esp_now_init() != ESP_OK) {
     return false;
@@ -30,6 +30,23 @@ inline bool prepararEstacionEnCanal(uint8_t canal) {
 
 inline bool enviarBroadcast(const void *paquete, size_t longitud) {
   return esp_now_send(MAC_BROADCAST, static_cast<const uint8_t *>(paquete), longitud) == ESP_OK;
+}
+
+// Registra un destino unicast sobre la interfaz y el canal Wi-Fi actuales.
+inline bool registrarPeerUnicast(const uint8_t *mac, wifi_interface_t interfaz) {
+  if (mac == nullptr) return false;
+  if (esp_now_is_peer_exist(mac)) return true;
+  esp_now_peer_info_t peer = {};
+  memcpy(peer.peer_addr, mac, sizeof(peer.peer_addr));
+  peer.channel = 0;
+  peer.ifidx = interfaz;
+  peer.encrypt = false;
+  return esp_now_add_peer(&peer) == ESP_OK;
+}
+
+inline bool enviarUnicast(const uint8_t *mac, const void *paquete, size_t longitud) {
+  if (mac == nullptr || !esp_now_is_peer_exist(mac)) return false;
+  return esp_now_send(mac, static_cast<const uint8_t *>(paquete), longitud) == ESP_OK;
 }
 
 inline String macATexto(const uint8_t *mac) {

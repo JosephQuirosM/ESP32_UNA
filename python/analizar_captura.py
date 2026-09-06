@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resume la integridad de una captura RSSI generada por el protocolo v2."""
+"""Resume capturas RSSI v2/v3 y diagnostica los enlaces cuando existen campos v3."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
-COLUMNAS_REQUERIDAS = {
+COLUMNAS_BASE = {
     "timestamp_utc_pc",
     "sesion_gateway",
     "tiempo_gateway_recepcion_ms",
@@ -21,6 +21,8 @@ COLUMNAS_REQUERIDAS = {
     "secuencia",
     "rssi",
 }
+COLUMNAS_DIAGNOSTICO_ENLACE = {"sesion_torre", "secuencia_torre_tx"}
+COLUMNAS_REQUERIDAS = COLUMNAS_BASE | COLUMNAS_DIAGNOSTICO_ENLACE
 
 
 def parsear_torres(texto: str) -> set[int]:
@@ -34,24 +36,46 @@ def parsear_torres(texto: str) -> set[int]:
     return torres
 
 
-def leer_latencia_gateway(ruta: Path | None) -> str:
-    """Extrae la última latencia HTTP promedio publicada por el monitor serial."""
+def leer_metricas_gateway(ruta: Path | None) -> str:
+    """Extrae el último resumen completo publicado por el Gateway."""
     if ruta is None:
         return "No medida: entregue --log-gateway con la salida serial del Gateway."
     if not ruta.exists():
         return f"No medida: no existe el log serial {ruta}."
-    coincidencias = re.findall(r"latencia_http_media_ms=(\d+)", ruta.read_text(encoding="utf-8"))
+    coincidencias = re.findall(r"^Gateway: .+$", ruta.read_text(encoding="utf-8"), re.MULTILINE)
     if not coincidencias:
-        return "No medida: el log serial no contiene latencia_http_media_ms."
-    return f"{coincidencias[-1]} ms (último promedio acumulado publicado por Gateway)."
+        return "No medidas: el log serial no contiene una línea de resumen del Gateway."
+    return coincidencias[-1]
 
 
-def analizar(archivo: Path, torres_esperadas: set[int], log_gateway: Path | None = None) -> str:
+def leer_metricas_torres(rutas: list[Path] | None) -> list[str]:
+    """Extrae el último resumen de cada log serial de torre."""
+    if not rutas:
+        return ["- No medidas: entregue una opción --log-torre por cada torre."]
+    resultados: list[str] = []
+    for ruta in rutas:
+        if not ruta.exists():
+            resultados.append(f"- No existe `{ruta}`.")
+            continue
+        coincidencias = re.findall(r"^Torre: .+$", ruta.read_text(encoding="utf-8"), re.MULTILINE)
+        if coincidencias:
+            resultados.append(f"- `{ruta}`: {coincidencias[-1]}")
+        else:
+            resultados.append(f"- `{ruta}`: no contiene una línea de resumen de torre.")
+    return resultados
+
+
+def analizar(
+    archivo: Path,
+    torres_esperadas: set[int],
+    log_gateway: Path | None = None,
+    logs_torres: list[Path] | None = None,
+) -> str:
     """Calcula completitud, duplicados y cobertura de torres sin depender de pandas."""
     with archivo.open(newline="", encoding="utf-8") as flujo:
         lector = csv.DictReader(flujo)
         columnas = set(lector.fieldnames or [])
-        faltantes = COLUMNAS_REQUERIDAS - columnas
+        faltantes = COLUMNAS_BASE - columnas
         if faltantes:
             raise ValueError(f"faltan columnas requeridas: {', '.join(sorted(faltantes))}")
 
@@ -62,6 +86,10 @@ def analizar(archivo: Path, torres_esperadas: set[int], log_gateway: Path | None
         secuencias: dict[tuple[int, int, int, int], set[int]] = defaultdict(set)
         secuencias_emitidas: dict[tuple[int, int, int], list[int]] = defaultdict(list)
         observaciones: set[tuple[int, int, int, int, int]] = set()
+        secuencias_tx_por_sesion_torre: dict[tuple[int, int, int], Counter[int]] = defaultdict(
+            Counter
+        )
+        diagnostico_enlace_disponible = COLUMNAS_DIAGNOSTICO_ENLACE.issubset(columnas)
         duplicados = 0
         filas = 0
         for fila in lector:
@@ -71,9 +99,16 @@ def analizar(archivo: Path, torres_esperadas: set[int], log_gateway: Path | None
                 sesion_jugador = int(fila["sesion_jugador"])
                 secuencia = int(fila["secuencia"])
                 torre = int(fila["torre_id"])
+                if diagnostico_enlace_disponible:
+                    sesion_torre = int(fila["sesion_torre"])
+                    secuencia_torre_tx = int(fila["secuencia_torre_tx"])
             except ValueError as error:
                 raise ValueError(f"fila {filas + 2}: contiene un identificador no numérico") from error
             filas += 1
+            if diagnostico_enlace_disponible:
+                secuencias_tx_por_sesion_torre[(sesion_gateway, torre, sesion_torre)][
+                    secuencia_torre_tx
+                ] += 1
             clave_sesion = (sesion_gateway, jugador, sesion_jugador)
             filas_por_sesion[clave_sesion] += 1
             lecturas_por_torre_sesion[clave_sesion][torre] += 1
@@ -88,9 +123,18 @@ def analizar(archivo: Path, torres_esperadas: set[int], log_gateway: Path | None
             secuencias_emitidas[(sesion_gateway, jugador, sesion_jugador)].append(secuencia)
 
     completas = sum(1 for torres in secuencias.values() if torres_esperadas.issubset(torres))
+    minimo_cobertura_parcial = min(3, len(torres_esperadas))
+    parciales_utiles = sum(
+        1
+        for torres in secuencias.values()
+        if len(torres_esperadas.intersection(torres)) >= minimo_cobertura_parcial
+    )
     total_secuencias = len(secuencias)
     emitidas_estimadas = sum(max(valores) - min(valores) + 1 for valores in secuencias_emitidas.values())
     completitud = 0.0 if total_secuencias == 0 else completas * 100 / total_secuencias
+    cobertura_parcial = (
+        0.0 if total_secuencias == 0 else parciales_utiles * 100 / total_secuencias
+    )
     lineas_torres = [
         f"- Torre {torre}: {lecturas_por_torre[torre]} lecturas"
         for torre in sorted(torres_esperadas)
@@ -125,6 +169,42 @@ def analizar(archivo: Path, torres_esperadas: set[int], log_gateway: Path | None
             f"secuencias={total_sesion}, estimadas_por_rango={estimadas_sesion}, "
             f"completas={completas_sesion} ({porcentaje_sesion:.2f} %); {torres_sesion}"
         )
+    lineas_enlace: list[str] = []
+    faltantes_tx_totales = 0
+    esperadas_tx_totales = 0
+    duplicados_tx_totales = 0
+    if diagnostico_enlace_disponible:
+        for (sesion_gateway, torre, sesion_torre), contador in sorted(
+            secuencias_tx_por_sesion_torre.items()
+        ):
+            observadas_tx = sorted(contador)
+            esperadas_tx = observadas_tx[-1] - observadas_tx[0] + 1
+            faltantes_tx = esperadas_tx - len(observadas_tx)
+            duplicados_tx = sum(cantidad - 1 for cantidad in contador.values())
+            cobertura = 100.0 * len(observadas_tx) / esperadas_tx
+            faltantes_tx_totales += faltantes_tx
+            esperadas_tx_totales += esperadas_tx
+            duplicados_tx_totales += duplicados_tx
+            lineas_enlace.append(
+                f"- Gateway {sesion_gateway}, torre {torre}, sesión de torre {sesion_torre}: "
+                f"recibidas={len(observadas_tx)}, rango={observadas_tx[0]}..{observadas_tx[-1]}, "
+                f"huecos_internos={faltantes_tx}, cobertura={cobertura:.2f} %, "
+                f"duplicados_tx={duplicados_tx}"
+            )
+        cobertura_tx_total = (
+            0.0
+            if esperadas_tx_totales == 0
+            else 100.0 * (esperadas_tx_totales - faltantes_tx_totales) / esperadas_tx_totales
+        )
+        resumen_enlace = (
+            f"Cobertura agregada Torre → Gateway: {cobertura_tx_total:.2f} %; "
+            f"huecos internos={faltantes_tx_totales}; duplicados de secuencia de torre="
+            f"{duplicados_tx_totales}."
+        )
+    else:
+        resumen_enlace = (
+            "No disponible: el CSV es v2 y no contiene sesion_torre ni secuencia_torre_tx."
+        )
     return "\n".join(
         [
             "# Informe de captura RSSI",
@@ -134,6 +214,8 @@ def analizar(archivo: Path, torres_esperadas: set[int], log_gateway: Path | None
             f"Paquetes emitidos estimados por rangos de secuencia: {emitidas_estimadas}",
             f"Secuencias observadas: {total_secuencias}",
             f"Secuencias completas ({len(torres_esperadas)} torres): {completas} ({completitud:.2f} %)",
+            f"Secuencias con {minimo_cobertura_parcial} o más torres esperadas: "
+            f"{parciales_utiles} ({cobertura_parcial:.2f} %)",
             f"Duplicados de (sesión, jugador, secuencia, torre): {duplicados}",
             "",
             "## Sesiones de jugador",
@@ -144,26 +226,41 @@ def analizar(archivo: Path, torres_esperadas: set[int], log_gateway: Path | None
             "",
             *lineas_torres,
             "",
+            "## Diagnóstico Torre → Gateway",
+            "",
+            resumen_enlace,
+            *lineas_enlace,
+            "",
             "## Métricas del Gateway",
             "",
             "Los descartes de cola, entrega y reintentos se leen del monitor serial del Gateway.",
-            f"Latencia HTTP Gateway a PC: {leer_latencia_gateway(log_gateway)}",
+            f"Último resumen: {leer_metricas_gateway(log_gateway)}",
+            "",
+            "## Métricas de las torres",
+            "",
+            *leer_metricas_torres(logs_torres),
         ]
     ) + "\n"
 
 
 def argumentos() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Genera el informe de una captura RSSI v2.")
+    parser = argparse.ArgumentParser(description="Genera el informe de una captura RSSI v2/v3.")
     parser.add_argument("archivo", type=Path, help="CSV real generado por receptor_gateway.py")
     parser.add_argument("--torres", type=parsear_torres, default={1, 2, 3, 4})
     parser.add_argument("--log-gateway", type=Path, help="Log de monitor serial del Gateway")
+    parser.add_argument(
+        "--log-torre",
+        type=Path,
+        action="append",
+        help="Log serial de una torre; repita la opción para las cuatro torres",
+    )
     parser.add_argument("--salida", type=Path, help="Archivo Markdown de salida; por defecto usa stdout")
     return parser.parse_args()
 
 
 def main() -> int:
     args = argumentos()
-    informe = analizar(args.archivo, args.torres, args.log_gateway)
+    informe = analizar(args.archivo, args.torres, args.log_gateway, args.log_torre)
     if args.salida is None:
         print(informe, end="")
     else:

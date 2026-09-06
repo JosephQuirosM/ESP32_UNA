@@ -1,6 +1,6 @@
 # Informe de captura RSSI
 
-Archivo: `data/raw/lecturas_mvp.csv`
+Archivo: `data/raw/lecturas_mvp 1.csv`
 Filas leídas: 3812
 Paquetes emitidos estimados por rangos de secuencia: 1241
 Secuencias observadas: 1240

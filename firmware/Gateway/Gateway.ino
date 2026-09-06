@@ -3,6 +3,7 @@
 #include <WiFiUdp.h>
 
 #include "config.h"
+#include "../Comun/IdeaBoard.h"
 #include "../Comun/LedEstado.h"
 #include "../Comun/Paquete.h"
 #include "../Comun/RadioComun.h"
@@ -30,15 +31,15 @@ WiFiUDP udp;
 NodoRegistrado nodos[MAXIMO_NODOS] = {};
 
 EventoControl colaControl[CAPACIDAD_COLA_CONTROL];
-volatile uint8_t indiceLecturaControl = 0;
-volatile uint8_t indiceEscrituraControl = 0;
-volatile uint32_t descartesColaControl = 0;
+uint8_t indiceLecturaControl = 0;
+uint8_t indiceEscrituraControl = 0;
+uint32_t descartesColaControl = 0;
 portMUX_TYPE mutexColaControl = portMUX_INITIALIZER_UNLOCKED;
 
 EventoRegistro colaRegistros[CAPACIDAD_COLA_REGISTROS];
-volatile uint8_t indiceLecturaRegistros = 0;
-volatile uint8_t indiceEscrituraRegistros = 0;
-volatile uint32_t descartesColaRegistros = 0;
+uint8_t indiceLecturaRegistros = 0;
+uint8_t indiceEscrituraRegistros = 0;
+uint32_t descartesColaRegistros = 0;
 portMUX_TYPE mutexColaRegistros = portMUX_INITIALIZER_UNLOCKED;
 
 EventoRegistro lotePendiente[TAMANO_LOTE_HTTP];
@@ -46,8 +47,8 @@ uint8_t cantidadLotePendiente = 0;
 uint8_t reintentosLotePendiente = 0;
 uint32_t proximoIntentoHttpMs = 0;
 
-volatile uint32_t controlesRecibidos = 0;
-volatile uint32_t registrosRecibidos = 0;
+uint32_t controlesRecibidos = 0;
+uint32_t registrosRecibidos = 0;
 uint32_t registrosDescartadosValidacion = 0;
 uint32_t registrosEnviados = 0;
 uint32_t registrosDescartadosEntrega = 0;
@@ -67,6 +68,7 @@ bool radioLista = false;
 // Inserta solo mensajes de registro de nodo desde el callback de ESP-NOW.
 void encolarControl(const EventoControl &evento) {
   portENTER_CRITICAL(&mutexColaControl);
+  ++controlesRecibidos;
   const uint8_t siguiente = (indiceEscrituraControl + 1) % CAPACIDAD_COLA_CONTROL;
   if (siguiente == indiceLecturaControl) {
     ++descartesColaControl;
@@ -92,6 +94,7 @@ bool sacarControl(EventoControl &evento) {
 // Inserta telemetría sin procesarla; la validación y HTTP ocurren en loop.
 void encolarRegistro(const EventoRegistro &evento) {
   portENTER_CRITICAL(&mutexColaRegistros);
+  ++registrosRecibidos;
   const uint8_t siguiente = (indiceEscrituraRegistros + 1) % CAPACIDAD_COLA_REGISTROS;
   if (siguiente == indiceLecturaRegistros) {
     ++descartesColaRegistros;
@@ -120,7 +123,6 @@ void alRecibir(const esp_now_recv_info_t *info, const uint8_t *datos, int longit
     EventoControl evento = {};
     copiarMac(evento.mac_origen, info->src_addr);
     memcpy(&evento.registro, datos, sizeof(evento.registro));
-    ++controlesRecibidos;
     encolarControl(evento);
     return;
   }
@@ -131,7 +133,6 @@ void alRecibir(const esp_now_recv_info_t *info, const uint8_t *datos, int longit
     copiarMac(evento.mac_origen, info->src_addr);
     memcpy(&evento.registro, datos, sizeof(evento.registro));
     evento.tiempo_gateway_recepcion_ms = millis();
-    ++registrosRecibidos;
     encolarRegistro(evento);
   }
 }
@@ -211,6 +212,7 @@ bool registroTorreAutorizado(const EventoRegistro &evento) {
   const NodoRegistrado *torre = buscarNodo(RolNodo::TORRE, evento.mac_origen);
   return torre != nullptr && torre->id == registro.id_torre &&
          registro.id_torre != ID_SIN_ASIGNAR && registro.id_jugador != ID_SIN_ASIGNAR &&
+         registro.sesion_torre != 0 && registro.secuencia_torre_tx != 0 &&
          registro.sesion_jugador != 0;
 }
 
@@ -241,12 +243,14 @@ bool destinoPcDisponible() {
 
 String registroAJson(const EventoRegistro &evento) {
   const PaqueteRegistroTorre &registro = evento.registro;
-  char texto[320];
+  char texto[384];
   snprintf(texto, sizeof(texto),
-           "{\"sesion_gateway\":%lu,\"tiempo_gateway_recepcion_ms\":%lu,\"tiempo_torre_ms\":%lu,\"torre_id\":%u,\"mac_torre\":\"%02X:%02X:%02X:%02X:%02X:%02X\",\"jugador_id\":%u,\"sesion_jugador\":%lu,\"secuencia\":%lu,\"rssi\":%d}",
+           "{\"sesion_gateway\":%lu,\"tiempo_gateway_recepcion_ms\":%lu,\"tiempo_torre_ms\":%lu,\"torre_id\":%u,\"sesion_torre\":%lu,\"secuencia_torre_tx\":%lu,\"mac_torre\":\"%02X:%02X:%02X:%02X:%02X:%02X\",\"jugador_id\":%u,\"sesion_jugador\":%lu,\"secuencia\":%lu,\"rssi\":%d}",
            static_cast<unsigned long>(sesionGateway),
            static_cast<unsigned long>(evento.tiempo_gateway_recepcion_ms),
            static_cast<unsigned long>(registro.tiempo_torre_ms), registro.id_torre,
+           static_cast<unsigned long>(registro.sesion_torre),
+           static_cast<unsigned long>(registro.secuencia_torre_tx),
            evento.mac_origen[0], evento.mac_origen[1], evento.mac_origen[2],
            evento.mac_origen[3], evento.mac_origen[4], evento.mac_origen[5],
            registro.id_jugador, static_cast<unsigned long>(registro.sesion_jugador),
@@ -331,6 +335,7 @@ void enviarLotePendiente() {
 
 void setup() {
   Serial.begin(115200);
+  apagarDriverMotores();
   led.iniciar();
   led.intermitente(AMARILLO, 400);
   sesionGateway = esp_random();
@@ -364,15 +369,27 @@ void loop() {
   enviarLotePendiente();
   if (ahora - ultimoReporteMs >= 5000) {
     ultimoReporteMs = ahora;
+    uint32_t controles = 0;
+    uint32_t datos = 0;
+    uint32_t descartesControl = 0;
+    uint32_t descartesDatos = 0;
+    portENTER_CRITICAL(&mutexColaControl);
+    controles = controlesRecibidos;
+    descartesControl = descartesColaControl;
+    portEXIT_CRITICAL(&mutexColaControl);
+    portENTER_CRITICAL(&mutexColaRegistros);
+    datos = registrosRecibidos;
+    descartesDatos = descartesColaRegistros;
+    portEXIT_CRITICAL(&mutexColaRegistros);
     Serial.printf(
         "Gateway: control=%lu datos=%lu enviados=%lu descartes_control=%lu "
         "descartes_datos=%lu inválidos=%lu descartes_entrega=%lu fallos_http=%lu "
         "reintentos=%lu latencia_http_media_ms=%lu destino_pc=%s\n",
-        static_cast<unsigned long>(controlesRecibidos),
-        static_cast<unsigned long>(registrosRecibidos),
+        static_cast<unsigned long>(controles),
+        static_cast<unsigned long>(datos),
         static_cast<unsigned long>(registrosEnviados),
-        static_cast<unsigned long>(descartesColaControl),
-        static_cast<unsigned long>(descartesColaRegistros),
+        static_cast<unsigned long>(descartesControl),
+        static_cast<unsigned long>(descartesDatos),
         static_cast<unsigned long>(registrosDescartadosValidacion),
         static_cast<unsigned long>(registrosDescartadosEntrega),
         static_cast<unsigned long>(fallosHttp), static_cast<unsigned long>(reintentosHttp),

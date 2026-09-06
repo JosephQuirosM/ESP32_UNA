@@ -16,6 +16,14 @@ La información recolectada será procesada en Python para:
 
 El objetivo no es obtener una posición exacta tipo GPS, sino una **posición aproximada e interpolada** basada en patrones de señal.
 
+## Estado de implementación y evidencia 2026 09 06
+
+Se implementó y compiló la captura RSSI con un jugador, cuatro torres, Gateway y receptor Python. El protocolo vigente en código es versión 3 e incorpora sesiones de Gateway, torre y jugador, IDs dinámicos por MAC, validación de registros y colas separadas de control y telemetría.
+
+La primera prueba física estática duró aproximadamente diez minutos. La comunicación y el registro CSV funcionaron, pero la sesión principal logró 29.47 % de vectores completos con cuatro torres y 79.64 % con tres o más torres. No se iniciará la Fase 3 de calibración hasta corregir y medir las pérdidas de comunicación. La evidencia y el plan correctivo se conservan en `docs/hallazgos_captura_2026-09-06.md`.
+
+La Codificación 3 quedó implementada y verificada el 2026 09 06: secuencia y sesión propias de torre, telemetría Torre a Gateway unicast, escalonamiento no bloqueante por ID, jitter del jugador, métricas seriales por torre y contrato CSV v3. Los tres firmwares compilan con Arduino-ESP32 3.3.11, las siete pruebas Python pasan y la captura estática `captura_v3_1` alcanzó 99,91 % de vectores completos. El siguiente paso es probar el sistema en el área real con movimiento; la Fase 3 de calibración continúa bloqueada hasta validar estabilidad bajo esas condiciones.
+
 ---
 
 ## 2. Idea central del sistema
@@ -203,6 +211,8 @@ Internamente puede representarse como número:
 uint8_t anchor_id;
 ```
 
+En la implementación actual, `anchor_id`/`torre_id` es un ID lógico dinámico asignado por el Gateway durante una sesión. No representa permanentemente una posición física. Para calibración y KNN, la identidad física será la MAC asociada a una ubicación documentada en `docs/mapa_torres_fisicas.md`; el vector debe ordenarse por ubicación, no por el ID dinámico observado.
+
 ### 5.3 Zonas
 
 Para el MVP se usará una cuadrícula 3x3:
@@ -267,6 +277,8 @@ Campos:
 | `player_id` | `uint8_t` | Jugador que transmitió el paquete |
 | `seq` | `uint32_t` | Número de paquete recibido |
 | `rssi` | `int8_t` | Intensidad de señal recibida en dBm |
+
+El contrato v3 también conserva `mac_torre`, `sesion_torre` y `secuencia_torre_tx`. `mac_torre` permite reconstruir la identidad física de la torre para el dataset; las sesiones y secuencias sirven para separar reinicios y diagnosticar pérdidas, no son características del modelo KNN.
 
 ### 6.3 CSV recomendado
 
@@ -384,7 +396,7 @@ Visualización: Python
 - [ ] Definir tamaño del área de prueba.
 - [ ] Definir posiciones físicas de las torres.
 - [ ] Definir cantidad de zonas.
-- [ ] Definir IDs de torres.
+- [ ] Definir el mapa físico MAC→ubicación de las torres.
 - [ ] Definir IDs de jugadores.
 - [ ] Definir formato de CSV.
 - [ ] Definir frecuencia de transmisión inicial.
@@ -415,20 +427,20 @@ Lograr que un ESP32 jugador transmita paquetes ESP-NOW y que una torre ESP32 pue
 ### Tareas del firmware del jugador
 
 - [ ] Inicializar Wi-Fi en modo estación.
-- [ ] Inicializar ESP-NOW.
-- [ ] Configurar transmisión broadcast o hacia peers conocidos.
-- [ ] Crear estructura `player_packet_t`.
-- [ ] Incrementar `seq` en cada transmisión.
-- [ ] Transmitir cada 500 ms inicialmente.
-- [ ] Agregar jitter aleatorio pequeño para evitar colisiones futuras.
+- [x] Inicializar ESP-NOW.
+- [x] Configurar transmisión broadcast o hacia peers conocidos.
+- [x] Crear la estructura equivalente de paquete de jugador.
+- [x] Incrementar `seq` en cada transmisión.
+- [x] Transmitir cada 500 ms inicialmente.
+- [x] Agregar jitter aleatorio pequeño para evitar colisiones futuras.
 
 ### Tareas del firmware de torre
 
 - [ ] Inicializar Wi-Fi en modo estación.
-- [ ] Inicializar ESP-NOW.
-- [ ] Registrar callback de recepción.
-- [ ] Extraer `player_id` y `seq`.
-- [ ] Obtener RSSI del paquete recibido.
+- [x] Inicializar ESP-NOW.
+- [x] Registrar callback de recepción.
+- [x] Extraer `player_id` y `seq`.
+- [x] Obtener RSSI del paquete recibido.
 - [ ] Imprimir por serial:
 
 ```text
@@ -606,7 +618,7 @@ MISSING_RSSI = -100
 
 - [ ] Crear protocolo de calibración en `docs/calibration_protocol.md`.
 - [ ] Crear script para agrupar registros crudos por `player_id` y `seq`.
-- [ ] Crear dataset procesado con columnas por torre.
+- [ ] Crear dataset procesado con columnas por ubicación física, usando MAC→ubicación.
 - [ ] Agregar columna `zone`.
 - [ ] Manejar datos faltantes.
 - [ ] Guardar dataset en `data/calibration/`.
@@ -622,6 +634,7 @@ MISSING_RSSI = -100
 
 - Existe un dataset con al menos 9 zonas.
 - Cada muestra tiene columnas RSSI por torre.
+- El orden de las columnas RSSI es estable aunque cambien los IDs dinámicos del Gateway.
 - Los datos faltantes están tratados.
 - El dataset puede usarse para entrenar un modelo.
 
@@ -1442,4 +1455,3 @@ El proyecto se define como:
 La posición mostrada en pantalla no debe presentarse como coordenada real exacta, sino como:
 
 > Una posición visual aproximada e interpolada a partir de probabilidades de pertenencia a zonas calibradas.
-

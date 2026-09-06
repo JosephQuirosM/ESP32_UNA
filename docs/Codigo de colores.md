@@ -18,7 +18,7 @@ El LED RGB WS2812B integrado de la IdeaBoard usa GPIO 2. Un error tiene priorida
 | Inicio | Amarillo intermitente | Inicializando radio. |
 | Esperando ID | Azul intermitente | Radio lista, aún sin asignación del Gateway. |
 | Escuchando | Verde fijo | Torre registrada y midiendo beacons. |
-| Reenvío | Cian pulsante | Se difundió un registro RSSI al Gateway. |
+| Reenvío | Cian pulsante | `esp_now_send()` aceptó localmente un registro RSSI para unicast al Gateway; no sustituye la confirmación serial `tx_confirmadas`. |
 | Error | Rojo intermitente rápido | No se inicializó la radio. |
 
 ## Gateway
