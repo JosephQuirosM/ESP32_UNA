@@ -1,0 +1,22 @@
+{
+  "name": "esp32-backend-local",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/backend/src/index.js",
+    "test": "tsx --test tests/*.test.ts",
+    "pretest": "npm run build"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^24.0.0",
+    "typescript": "~5.9.2",
+    "tsx": "^4.20.0"
+  }
+}

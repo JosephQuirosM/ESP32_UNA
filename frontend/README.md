@@ -1,37 +1,36 @@
 # Panel ESP32 — frontend
 
-Interfaz en React y TypeScript basada en `references/Main Menu`. Solo usa estado local: no tiene backend, no ejecuta Python, no recibe telemetría y no genera CSV. Los temporizadores son demostraciones visuales.
+Interfaz en React y TypeScript basada en `references/Main Menu`, conectada al backend local de recolección. El backend y Python corren en esta misma PC; los archivos se guardan aquí.
 
-## Desarrollo
+## Uso completo
 
-Requiere Node.js 20.19+ o 22.12+ y npm.
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Abra la URL indicada por Vite. El servidor de desarrollo escucha en la red local para poder revisar la interfaz desde otro dispositivo.
-
-## Comprobación y publicación estática
+Desde la raíz del proyecto:
 
 ```bash
+npm run instalar
 npm run build
-npm run preview
+npm start
 ```
 
-`build` verifica TypeScript y genera `dist/`, que puede servirse mediante cualquier servidor de archivos estáticos. `preview` permite revisar esa compilación localmente; no es un servidor de producción.
+Abra `http://localhost:8000`. Consulte `../backend/README.md` para configuración, API y detalles de la captura.
+
+## Desarrollo de la interfaz
+
+Con el backend iniciado en 8000:
+
+```bash
+npm run dev --prefix frontend
+```
+
+Vite redirige las peticiones `/api` al backend de esta PC. `npm run build --prefix frontend` comprueba TypeScript y genera `dist/`, que el backend sirve junto con su API. Publicar solamente `dist/` en un servidor estático no proporciona la recolección Python.
 
 ## Flujos
 
-- Inicio: menú de Stitch, módulos futuros deshabilitados y estados «Sin conectar».
-- Manual: nombre y duración en segundos; temporizador y botón Detener.
-- Guiado: filas × columnas configurables (3×3 por defecto, de 1 a 20 por lado), confirmación antes de cada zona y progreso local. Arrastrar una zona sobre otra intercambia sus posiciones; también se puede usar Espacio y las flechas del teclado. El recorrido sigue el orden numérico y la disposición no altera la identidad de cada zona.
-- Datasets: estado vacío, sin descargas ficticias.
-- Gateway: parámetros de referencia de solo lectura.
-- Ayuda: instrucciones para una integración posterior.
+- Manual: nombre y duración; crea un CSV con fecha y hora reales de inicio y permite detenerlo anticipadamente.
+- Guiado: filas × columnas configurables (3×3 inicial, hasta 20 por lado), un CSV por zona, confirmación entre zonas y salto sin crear archivo.
+- Las zonas se pueden intercambiar mediante arrastre o Espacio y flechas. El recorrido conserva su orden numérico.
+- Recargar recupera el recorrido y consulta la solicitud existente al backend. Cerrar la pestaña no detiene la captura actual ni inicia zonas siguientes.
+- Datasets: resultados completos o parciales y descarga de CSV cerrados.
+- Gateway: parámetros de referencia de solo lectura y recepción basada en datos reales.
 
-La navegación conserva la demostración mientras la página esté abierta. Al recargar se restablece todo el estado. La geometría y el recorrido serpenteante están separados en `src/cuadricula.ts`; la disposición inicial es serpenteante y se regenera al cambiar las dimensiones. El acomodo visual se conserva al iniciar la demostración y al navegar entre pantallas; recargar restablece la configuración.
-
-Los iconos SVG se incluyen con la aplicación. No utiliza fuentes, imágenes ni servicios alojados externamente.
+El estado del recorrido se guarda en `localStorage`. Los resultados y archivos permanecen en el disco del PC y pueden consultarse en Datasets aunque se borre el almacenamiento del navegador.

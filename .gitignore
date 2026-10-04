@@ -1,3 +1,6 @@
 .venv/
 __pycache__/
 *.py[cod]
+
+# Metadatos locales de las capturas web.
+data/raw/.lecturas/

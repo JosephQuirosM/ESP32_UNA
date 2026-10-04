@@ -9,6 +9,7 @@ type Propiedades = {
   zonas: number[];
   actual: number;
   completas: number[];
+  omitidas?: number[];
   ejecutando: boolean;
   onReordenar?: (zonas: number[]) => void;
 };
@@ -20,6 +21,7 @@ export default function Cuadricula({
   zonas,
   actual,
   completas,
+  omitidas = [],
   ejecutando,
   onReordenar,
 }: Propiedades) {
@@ -148,21 +150,24 @@ export default function Cuadricula({
           aria-label={`Cuadrícula de zonas ${filas} por ${columnas}`}
         >
           {zonas.map((zona) => {
+            const omitida = omitidas.includes(zona);
             const completa = completas.includes(zona),
               seleccionada = zona === actual && !completa;
-            const estado = completa
-              ? "completada"
-              : seleccionada
-                ? ejecutando
-                  ? "en curso"
-                  : "seleccionada"
-                : "pendiente";
+            const estado = omitida
+              ? "omitida"
+              : completa
+                ? "completada"
+                : seleccionada
+                  ? ejecutando
+                    ? "en curso"
+                    : "seleccionada"
+                  : "pendiente";
             return (
               <button
                 key={zona}
                 type="button"
                 data-zona={zona}
-                className={`zona zona-arrastrable ${completa ? "completa" : seleccionada ? (ejecutando ? "ejecutando" : "actual") : ""} ${tomada === zona ? "tomada" : ""} ${destino === zona && tomada !== zona ? "destino-arrastre" : ""}`}
+                className={`zona zona-arrastrable ${omitida ? "omitida" : ""} ${completa ? "completa" : seleccionada ? (ejecutando ? "ejecutando" : "actual") : ""} ${tomada === zona ? "tomada" : ""} ${destino === zona && tomada !== zona ? "destino-arrastre" : ""}`}
                 disabled={!onReordenar}
                 aria-label={`Zona ${zona}: ${estado}`}
                 aria-describedby={onReordenar ? ayudaId : undefined}
@@ -194,13 +199,15 @@ export default function Cuadricula({
                 </div>
                 <strong>{zona}</strong>
                 <small>
-                  {completa
-                    ? "Completada"
-                    : seleccionada
-                      ? ejecutando
-                        ? "En curso"
-                        : "Seleccionada"
-                      : "Pendiente"}
+                  {omitida
+                    ? "Omitida"
+                    : completa
+                      ? "Completada"
+                      : seleccionada
+                        ? ejecutando
+                          ? "En curso"
+                          : "Seleccionada"
+                        : "Pendiente"}
                 </small>
               </button>
             );

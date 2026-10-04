@@ -37,6 +37,20 @@ Importante para KNN: el `torre_id` dinámico sirve para la comunicación, no par
 
 Las rutas relativas a `../Comun` son intencionales: `Paquete.h`, `RadioComun.h` y `LedEstado.h` se comparten entre los tres sketches. No mueva cada `.ino` fuera de su carpeta.
 
+## Interfaz web local de recolección
+
+El frontend, el backend y el receptor Python se ejecutan en esta misma PC. Prepare la aplicación una vez con Node.js 22.12+ y Python 3.10+:
+
+```bash
+npm run instalar
+npm run build
+npm start
+```
+
+Abra `http://localhost:8000`, conecte la PC al Wi-Fi del Gateway y configure el nombre y la duración en Recolección. El modo manual crea un CSV; el guiado crea un CSV por zona confirmada y permite saltar zonas sin crear archivos. No necesita escribir un comando Python por captura.
+
+Python controla el tiempo y cierra el CSV aunque el navegador pierda conexión. Los archivos se guardan en `data/raw`, con fecha y hora de inicio en Costa Rica, y pueden descargarse desde Datasets. Consulte [backend/README.md](backend/README.md) para configuración, recuperación y pruebas. El etiquetado KNN de estas nuevas capturas por zona requiere una adaptación posterior; esta fase no cambia el firmware ni la conexión Wi-Fi.
+
 ## Receptor Python
 
 Conecte la PC al Wi-Fi creado por el Gateway y ejecute con un archivo nuevo por prueba:

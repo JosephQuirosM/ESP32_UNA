@@ -1371,3 +1371,73 @@ footer > span:first-child {
 .campos-dimensiones input {
   min-width: 0;
 }
+
+/* Capturas reales y archivos guardados en el PC. */
+.resumen-captura {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  margin: 24px 0;
+  padding: 16px;
+  background: #f1f5fc;
+  border-radius: 10px;
+}
+.resumen-captura strong {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.resumen-captura > span {
+  width: 100%;
+  color: #526079;
+}
+.lista-datasets {
+  margin-top: 20px;
+  display: grid;
+  gap: 12px;
+}
+.dataset {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #e0e7f2;
+  border-radius: 12px;
+}
+.dataset > div {
+  flex: 1;
+  min-width: 0;
+}
+.dataset strong {
+  overflow-wrap: anywhere;
+}
+.dataset p {
+  margin-top: 5px;
+  font-size: 12px;
+}
+.error-dataset {
+  color: #ba1a1a;
+}
+.zona.omitida {
+  background: #fff7e7;
+  color: #8e5d15;
+  border-color: #edcc92;
+}
+.muestra.omitida {
+  background: #d5a34c;
+}
+@media (max-width: 767px) {
+  .dataset {
+    flex-wrap: wrap;
+  }
+  .dataset > div {
+    flex-basis: 100%;
+  }
+}
+.encabezado-pagina {
+  margin-bottom: 24px;
+}
+a.boton {
+  text-decoration: none;
+}
