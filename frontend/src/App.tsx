@@ -80,7 +80,15 @@ export default function App() {
     actual?.ultimaRecepcionUtc &&
     Date.now() - Date.parse(actual.ultimaRecepcionUtc) < 10000
       ? "Recibiendo registros"
-      : "Sin datos recientes";
+      : !conectado
+        ? "Sin conectar"
+        : servidor?.gateway?.error
+          ? "Error de descubrimiento"
+          : servidor?.gateway?.dispositivos.some((dispositivo) => dispositivo.conectado && dispositivo.pcConfirmada)
+            ? "Comunicando con la PC"
+            : servidor?.gateway?.dispositivos.some((dispositivo) => dispositivo.conectado)
+              ? "Detectado; esperando confirmación"
+              : "Sin conectar";
 
   // El panel lateral conserva el foco y permite salir mediante Escape.
   useEffect(() => {
@@ -425,7 +433,7 @@ export default function App() {
                   </p>
                   <dl className="parametros">
                     {[
-                      ["Red Wi-Fi", "MapaCalor_MVP"],
+                      ["Red Wi-Fi", "Hotspot de la PC · credenciales en config.h"],
                       ["Canal Wi-Fi", "6 · 2.4 GHz"],
                       [
                         "Escucha HTTP del receptor",
@@ -433,8 +441,8 @@ export default function App() {
                       ],
                       ["Endpoint de registros", "/v1/registros"],
                       [
-                        "Destino broadcast UDP",
-                        servidor?.receptor.destinoUdp ?? "192.168.4.255",
+                        "Descubrimiento UDP",
+                        "El Gateway anuncia; la PC escucha y responde",
                       ],
                       [
                         "Puerto UDP",
@@ -456,9 +464,21 @@ export default function App() {
                     <h3>{gateway}</h3>
                     <p>
                       Backend: {servicio}. Receptor: {receptor}. La recepción se
-                      indica únicamente cuando llegan registros reales.
+                      indica cuando llegan registros reales. El Gateway se detecta
+                      por sus anuncios, incluso sin una captura activa.
                     </p>
                   </div>
+                  {servidor?.gateway?.error && <p role="alert">{servidor.gateway.error}</p>}
+                  {servidor?.gateway?.dispositivos.map((dispositivo) => (
+                    <dl className="parametros" key={dispositivo.mac}>
+                      <div><dt>Gateway</dt><dd>{dispositivo.mac}</dd></div>
+                      <div><dt>IP en el hotspot</dt><dd>{dispositivo.ip}</dd></div>
+                      <div><dt>Estado</dt><dd>{dispositivo.conectado ? (dispositivo.pcConfirmada ? "Comunicación confirmada" : "Anuncio recibido") : "Sin anuncios recientes"}</dd></div>
+                      <div><dt>Último anuncio</dt><dd>{new Date(dispositivo.ultimaVezUtc).toLocaleTimeString("es-CR")}</dd></div>
+                      <div><dt>Registros recibidos / enviados</dt><dd>{dispositivo.registrosRecibidos} / {dispositivo.registrosEnviados}</dd></div>
+                      <div><dt>Fallos HTTP acumulados</dt><dd>{dispositivo.fallosHttp}</dd></div>
+                    </dl>
+                  ))}
                   <div className="nota">
                     <Info size={18} />
                     <span>
@@ -480,26 +500,26 @@ export default function App() {
               <section className="tarjeta ayuda">
                 <h2>Preparación del sistema</h2>
                 <p className="texto-suave">
-                  Enciende los dispositivos y conecta esta PC antes de iniciar
+                  Activa el hotspot de esta PC y enciende los dispositivos antes de iniciar
                   una captura.
                 </p>
                 <ol>
                   {[
                     [
-                      "Enciende el Gateway",
-                      "El Gateway crea la red Wi-Fi MapaCalor_MVP. Todas las ESP32 deben utilizar el mismo canal y la misma versión del protocolo.",
+                      "Activa el hotspot de la PC",
+                      "Crea una red de 2.4 GHz. El hotspot, Gateway, torres y jugador deben compartir el canal (6 por defecto).",
                     ],
                     [
-                      "Conecta el PC al Wi-Fi del Gateway",
-                      "Conecta el equipo receptor a MapaCalor_MVP. El receptor recibe los lotes HTTP en el puerto 8080.",
+                      "Enciende el Gateway",
+                      "El Gateway se conecta al hotspot con las credenciales de su config.h y anuncia su presencia por UDP. Levanta el backend y consulta Gateway para confirmar la comunicación.",
                     ],
                     [
                       "Prepara el receptor",
-                      "Abre Recolección y configura el archivo y su duración. Inicia la primera captura para que Python anuncie el receptor al Gateway.",
+                      "Abre Recolección y configura el archivo y su duración. Al iniciar, el backend responderá al Gateway con el puerto del receptor Python.",
                     ],
                     [
-                      "Espera a que el Gateway descubra el PC",
-                      "En la prueba física, confirma el mensaje «PC descubierta» antes de encender las torres y el jugador.",
+                      "Confirma la conexión con la PC",
+                      "Antes de capturar, el Gateway muestra «PC confirmada; sin captura activa». Durante la captura muestra «PC descubierta» y el puerto HTTP.",
                     ],
                     [
                       "Enciende las torres y el jugador",
@@ -516,8 +536,8 @@ export default function App() {
                   <CircleHelp size={20} />
                   <span>
                     Si no llegan datos en una prueba real, revisa la red Wi-Fi,
-                    el canal y que el firewall permita el puerto 8080 desde la
-                    red del Gateway.
+                    el canal y que el firewall permita HTTP 8080 y UDP 4210 desde
+                    la red del hotspot de esta PC.
                   </span>
                 </div>
               </section>

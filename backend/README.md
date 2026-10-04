@@ -1,6 +1,6 @@
 # Backend local de recolección
 
-Este backend se ejecuta en la misma PC que el frontend y Python. La API escucha en `127.0.0.1:8000`; los CSV se guardan en `data/raw` de esa PC. El Gateway conserva su red Wi-Fi y envía lotes v3 al receptor Python en HTTP 8080. No utiliza servidores remotos.
+Este backend se ejecuta en la misma PC que el frontend y Python. La API y el frontend escuchan en `0.0.0.0:8000`, accesibles desde la PC y los dispositivos de su red; los CSV se guardan en `data/raw` de esa PC. El Gateway se conecta al hotspot Wi-Fi de la PC y envía lotes v3 al receptor Python en HTTP 8080. No utiliza servidores remotos.
 
 ## Preparación y uso
 
@@ -19,9 +19,9 @@ Para levantar la aplicación:
 npm start
 ```
 
-Abra `http://localhost:8000`. El backend sirve la interfaz compilada y ejecuta Python únicamente cuando se solicita una captura. No necesita otro comando por CSV. Después de editar la interfaz o el backend, ejecute `npm run build` nuevamente.
+En la PC abra `http://localhost:8000`. En el móvil conectado al hotspot abra `http://IP_DE_LA_PC:8000`, usando la IP de la interfaz que crea el hotspot. El backend imprime las direcciones IPv4 disponibles al arrancar. En Linux Mint puede consultarlas con `nmcli -f GENERAL.DEVICE,GENERAL.CONNECTION,IP4.ADDRESS device show`; busque la conexión del hotspot y omita la máscara `/24` al escribir la URL. Si el móvil no puede acceder, compruebe que el firewall permita TCP 8000 desde el hotspot. El backend sirve la interfaz compilada y ejecuta Python únicamente cuando se solicita una captura. No necesita otro comando por CSV. Después de editar la interfaz o el backend, ejecute `npm run build` nuevamente.
 
-El usuario debe encender Gateway, torres y jugador, y conectar la PC a `MapaCalor_MVP`. El orden físico y el anuncio UDP siguen siendo los existentes. El backend no cambia el firmware ni la conexión Wi-Fi.
+El usuario debe activar el hotspot de la PC (2.4 GHz, canal 6 por defecto), configurar su nombre y clave en `firmware/Gateway/config.h` y cargar el firmware del Gateway. Gateway, torres y jugador deben compartir el canal. El Gateway calcula el broadcast de su red y anuncia su presencia cada dos segundos. El backend escucha en UDP 4210 incluso sin una captura, y responde al emisor con la disponibilidad del receptor. No necesita configurar `RECEPTOR_DESTINO_UDP` para usar la web. Encienda el Gateway y luego las torres y el jugador. Los CSV y HTTP v3 se conservan; el descubrimiento UDP ahora lo inicia el Gateway; el backend no crea el hotspot.
 
 ## Capturas
 
@@ -46,26 +46,30 @@ npm run dev --prefix backend
 npm run dev --prefix frontend
 ```
 
-Vite comunica `/api` con el backend local en 8000. La interfaz de producción se abre en 8000 y no necesita Vite. Solo un proceso backend debe estar escuchando en ese puerto.
+En este modo de dos terminales, abra el frontend en `http://IP_DEL_HOTSPOT:5173` desde el móvil (o `http://localhost:5173` en la PC). Vite comunica `/api` con el backend local en 8000. Permita TCP 5173 desde el hotspot si usa firewall. La interfaz de producción se abre en 8000 y no necesita Vite. Solo un proceso backend debe estar escuchando en ese puerto.
 
 ## Configuración del entorno
 
 | Variable | Valor inicial | Uso |
 |---|---|---|
 | `PYTHON_EJECUTABLE` | Python de `.venv` si existe; si no `python` en Windows o `python3` en Linux | Ruta del intérprete. |
+| `HOST_BACKEND` | `0.0.0.0` | Interfaces de escucha; use la IP del hotspot para limitarlo a esa red o `127.0.0.1` para acceso solo desde la PC. |
 | `PUERTO_BACKEND` | `8000` | Puerto de la interfaz y API local. |
 | `DIRECTORIO_DATOS` | `data/raw` del repositorio | Directorio de CSV y metadatos. |
 | `RECEPTOR_HOST` | `0.0.0.0` | Interfaz de escucha del receptor. |
 | `RECEPTOR_PUERTO_HTTP` | `8080` | Puerto anunciado al Gateway. |
-| `RECEPTOR_DESTINO_UDP` | `192.168.4.255` | Broadcast usado actualmente. |
-| `RECEPTOR_PUERTO_UDP` | `4210` | Puerto de anuncios UDP. |
+| `RECEPTOR_DESTINO_UDP` | `192.168.4.255` | Valor legado; la captura web desactiva los anuncios desde Python y ya no depende de este destino. |
+| `RECEPTOR_PUERTO_UDP` | `4210` | Puerto donde el backend escucha al Gateway; debe coincidir con su config.h. |
 | `ZONA_HORARIA` | `America/Costa_Rica` | Zona para formar nombres de archivo. |
 
 Estas variables se configuran en el entorno de la terminal que levanta el backend. La aplicación no carga un archivo `.env` automáticamente. El ejecutable Python se pasa directamente, sin construir un comando de shell.
 
 ## API
 
-- `GET /api/estado`: disponibilidad de la API, receptor configurado y captura activa.
+- `GET /api/estado`: disponibilidad de la API, receptor, captura activa y anuncios del Gateway.
+- `GET /api/gateway`: estado de la escucha UDP y dispositivos detectados, IP, sesión, contadores y confirmación de la PC. Un dispositivo queda desconectado tras diez segundos sin anuncios. Esta presencia no garantiza por sí sola que haya mediciones de las torres.
+
+Consulte [el protocolo de descubrimiento](../docs/descubrimiento_gateway.md). El firewall debe admitir UDP 4210 y HTTP 8080 desde el hotspot. Si el puerto UDP está ocupado, el error se muestra en Gateway; cierre el otro proceso y reinicie el backend.
 - `POST /api/lecturas`: `{ "solicitudId": "UUID", "nombreArchivo": "laboratorio_zona_1", "duracionSegundos": 60 }`.
 - `GET /api/lecturas/actual`: captura activa o `null`.
 - `GET /api/lecturas/:id`: estado, nombre definitivo, fechas, conteo y errores.

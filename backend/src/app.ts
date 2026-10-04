@@ -2,9 +2,10 @@ import express from "express";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ErrorPeticion, GestorLecturas } from "./gestor.js";
+import type { DescubridorGateway } from "./gateway.js";
 
 /** Expone el control local de capturas y el frontend compilado desde el mismo origen. */
-export function crearApp(gestor: GestorLecturas) {
+export function crearApp(gestor: GestorLecturas, gateway?: DescubridorGateway) {
   const app = express();
   app.disable("x-powered-by");
   app.use(express.json({ limit: "16kb" }));
@@ -12,6 +13,7 @@ export function crearApp(gestor: GestorLecturas) {
     const actual = gestor.actual();
     respuesta.json({
       actual: actual ? gestor.presentar(actual) : null,
+      gateway: gateway?.estado() ?? { escuchando: false, error: null, dispositivos: [] },
       receptor: {
         host: gestor.configuracion.host,
         puertoHttp: gestor.configuracion.puertoHttp,
@@ -20,6 +22,9 @@ export function crearApp(gestor: GestorLecturas) {
       },
     });
   });
+  app.get("/api/gateway", (_peticion, respuesta) =>
+    respuesta.json(gateway?.estado() ?? { escuchando: false, error: null, dispositivos: [] }),
+  );
   app.get("/api/lecturas", (_peticion, respuesta) =>
     respuesta.json(gestor.listar().map((captura) => gestor.presentar(captura))),
   );

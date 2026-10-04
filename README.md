@@ -9,10 +9,11 @@ Jugador -- beacon ESP-NOW broadcast --> Torres (x4)
                                            |
                               registro ESP-NOW unicast escalonado
                                            v
-PC -- anuncio UDP --> Gateway -- HTTP POST --> PC/receptor CSV
+Gateway -- anuncio UDP --> PC/backend -- respuesta UDP unicast --> Gateway
+Gateway -- HTTP POST --> PC/receptor CSV
 ```
 
-El Gateway levanta la red `MapaCalor_MVP` en canal 6. La PC se conecta a ella, anuncia cada tres segundos el puerto del receptor HTTP y recibe lotes JSON v3 en `/v1/registros`. El protocolo ESP-NOW también es v3; los seis dispositivos deben tener esta misma versión cargada.
+La PC crea el hotspot Wi-Fi y el Gateway se conecta a él como estación, con el nombre y la clave de `firmware/Gateway/config.h`. El hotspot debe usar 2.4 GHz y el mismo canal ESP-NOW que Gateway, torres y jugador (6 por defecto). El Gateway anuncia su presencia cada dos segundos al broadcast calculado de su red. El backend de la PC escucha UDP 4210 y responde por unicast; durante una captura indica el puerto del receptor HTTP, que recibe lotes JSON v3 en `/v1/registros`. No es necesario configurar el broadcast en la PC para usar la interfaz web. El protocolo ESP-NOW también es v3; los seis dispositivos deben tener esta misma versión cargada.
 
 > Estado actual: preparar una nueva calibración 3×3 de 6 m × 2,5 m. Los datos anteriores fueron eliminados deliberadamente; no deben usarse ni citarse como línea base.
 
@@ -47,19 +48,21 @@ npm run build
 npm start
 ```
 
-Abra `http://localhost:8000`, conecte la PC al Wi-Fi del Gateway y configure el nombre y la duración en Recolección. El modo manual crea un CSV; el guiado crea un CSV por zona confirmada y permite saltar zonas sin crear archivos. No necesita escribir un comando Python por captura.
+Active el hotspot de la PC con las credenciales de `firmware/Gateway/config.h`, encienda el Gateway, abra `http://localhost:8000` y configure el nombre y la duración en Recolección. El modo manual crea un CSV; el guiado crea un CSV por zona confirmada y permite saltar zonas sin crear archivos. No necesita escribir un comando Python por captura.
 
-Python controla el tiempo y cierra el CSV aunque el navegador pierda conexión. Los archivos se guardan en `data/raw`, con fecha y hora de inicio en Costa Rica, y pueden descargarse desde Datasets. Consulte [backend/README.md](backend/README.md) para configuración, recuperación y pruebas. El etiquetado KNN de estas nuevas capturas por zona requiere una adaptación posterior; esta fase no cambia el firmware ni la conexión Wi-Fi.
+Python controla el tiempo y cierra el CSV aunque el navegador pierda conexión. Los archivos se guardan en `data/raw`, con fecha y hora de inicio en Costa Rica, y pueden descargarse desde Datasets. Consulte [backend/README.md](backend/README.md) para configuración, recuperación y pruebas. El etiquetado KNN de estas nuevas capturas por zona requiere una adaptación posterior; la captura conserva el protocolo v3 y el Gateway ahora se conecta al hotspot de la PC.
 
 ## Receptor Python
 
-Conecte la PC al Wi-Fi creado por el Gateway y ejecute con un archivo nuevo por prueba:
+Active primero el hotspot de la PC y configure su nombre y clave en `firmware/Gateway/config.h` antes de cargar el Gateway. Como alternativa a la web, ejecute el receptor por terminal con un archivo nuevo:
 
 ```bash
 python3 python/receptor_gateway.py --archivo data/raw/captura_YYYY-MM-DD_HHMM.csv
 ```
 
-El receptor escucha HTTP en el puerto 8080 y anuncia UDP a `192.168.4.255:4210`. Para detenerlo, use `Ctrl+C`; el servidor, el hilo de anuncios y el CSV se cierran de forma ordenada. El CSV v3 conserva las sesiones de Gateway, torre y jugador; las secuencias del jugador y de transmisión de torre; tiempo local de torre, tiempo de recepción en Gateway y hora UTC de la PC. No anexe una captura v3 a un CSV v2.
+El receptor independiente escucha HTTP en 8080 y los anuncios del Gateway en UDP 4210. Responde al ESP32 por unicast, sin necesidad de configurar una IP ni un broadcast. No ejecute esta alternativa junto con el backend: ambos necesitan el puerto UDP. Para firmware anterior, `--anuncio-udp-legacy --destino-udp DIRECCION` conserva el anuncio desde la PC; la captura web no utiliza ese modo.
+
+El Gateway recibe su IP por DHCP y reintenta conectarse al hotspot cada diez segundos. Si el canal no coincide, informa el error por serial y no inicia el envío de registros; ajuste el canal y reconecte. Para detener el receptor, use `Ctrl+C`; HTTP, UDP y el CSV se cierran de forma ordenada. El CSV v3 conserva sesiones, secuencias, tiempos locales y hora UTC de la PC. No anexe una captura v3 a un CSV v2.
 
 Ejecute las pruebas locales con:
 
@@ -116,11 +119,11 @@ Consulte [docs/prueba_campo_captura.md](docs/prueba_campo_captura.md) antes de r
 ## Diagnóstico rápido
 
 - Si las torres no reciben, confirme que el Gateway usa canal 6 y que jugador/torres no se conectaron a otra red Wi-Fi.
-- Si el Gateway muestra `destino_pc=no`, conecte la PC a `MapaCalor_MVP` y ejecute el receptor.
-- Si aparece `HTTP no entregó lote`, revise que el firewall de la PC permita conexiones al puerto 8080 desde la red del Gateway.
+- Si el Gateway muestra `destino_pc=no` antes de capturar, es normal: aún no hay receptor activo. Debe mostrar `PC confirmada` y la web «Comunicando con la PC». Durante una captura debe mostrar `PC descubierta` y el puerto HTTP. Si no confirma la PC, revise que el backend escuche UDP 4210 y que el firewall permita los anuncios del hotspot.
+- Si aparece `HTTP no entregó lote`, revise que el firewall de la PC permita conexiones HTTP al puerto 8080 y anuncios UDP al puerto 4210 desde la red del hotspot de la PC.
 - Los IDs se reservan por MAC mientras el Gateway está encendido; reiniciarlo reinicia esa reserva. Cada torre debe mostrar un ID distinto por serial.
 - Cada torre debe mostrar `gateway_unicast=si`. `tx_fallidas` o `descartes_cola` crecientes identifican un problema anterior a HTTP.
-- Inicie primero Gateway, PC y receptor; espere `PC descubierta` antes de encender torres y jugador para que exista destino HTTP antes de transmitir telemetría.
+- Active primero el hotspot de la PC, encienda Gateway e inicie el receptor; espere `PC confirmada` antes de encender torres y jugador; al iniciar una captura recibirá el destino HTTP. Consulte [el descubrimiento del Gateway](docs/descubrimiento_gateway.md).
 - No reutilice un CSV entre pruebas: el receptor anexa filas y puede mezclar sesiones de jugador.
 
 Consulte [docs/contexto.md](docs/contexto.md) para rutas y flujo detallado.

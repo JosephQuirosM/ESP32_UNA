@@ -9,7 +9,7 @@ Crear un CSV v3 limpio para entrenar el MVP KNN en una cuadrícula de 3×3 dentr
 1. Monte la zona y mantenga las cuatro torres inmóviles durante toda la sesión.
 2. Verifique la tabla MAC→posición en [mapa_torres_fisicas.md](mapa_torres_fisicas.md).
 3. Cargue el mismo firmware v3 en jugador, torres y Gateway.
-4. Conecte la PC a `MapaCalor_MVP` y ejecute:
+4. Active el hotspot de la PC en 2.4 GHz y el mismo canal que las ESP32 (6 por defecto). Configure sus credenciales en `firmware/Gateway/config.h` y encienda el Gateway. Para la captura independiente por terminal, detenga el backend y ejecute el receptor, que escuchará los anuncios UDP del Gateway:
 
 ```bash
 python3 python/receptor_gateway.py --archivo data/raw/calibracion_13-09-26_MUESTRA1_ZONA_1.csv

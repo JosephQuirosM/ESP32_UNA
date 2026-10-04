@@ -1,8 +1,10 @@
 import { existsSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crearApp } from "./app.js";
 import { GestorLecturas } from "./gestor.js";
+import { DescubridorGateway } from "./gateway.js";
 
 /** Encuentra el repositorio tanto al ejecutar TypeScript como el backend compilado. */
 function encontrarRaiz() {
@@ -44,17 +46,30 @@ const gestor = new GestorLecturas({
   puertoUdp: puerto("RECEPTOR_PUERTO_UDP", 4210),
   zonaHoraria: process.env.ZONA_HORARIA ?? "America/Costa_Rica",
 });
-const servidor = crearApp(gestor).listen(
-  puerto("PUERTO_BACKEND", 8000),
-  "127.0.0.1",
-  () =>
-    console.log(
-      "Panel local disponible en http://localhost:" +
-        puerto("PUERTO_BACKEND", 8000),
-    ),
+const gateway = new DescubridorGateway(gestor.configuracion.puertoUdp, () =>
+  gestor.actual()?.estado === "grabando" ? gestor.configuracion.puertoHttp : 0,
+);
+const hostBackend = process.env.HOST_BACKEND ?? "0.0.0.0";
+const puertoBackend = puerto("PUERTO_BACKEND", 8000);
+const servidor = crearApp(gestor, gateway).listen(
+  puertoBackend,
+  hostBackend,
+  () => {
+    gateway.iniciar();
+    if (hostBackend === "0.0.0.0" || hostBackend === "127.0.0.1")
+      console.log(`Panel local disponible en http://localhost:${puertoBackend}`);
+    for (const [interfaz, direcciones] of Object.entries(networkInterfaces())) {
+      for (const direccion of direcciones ?? []) {
+        if (direccion.family === "IPv4" && !direccion.internal &&
+            (hostBackend === "0.0.0.0" || hostBackend === direccion.address))
+          console.log(`Acceso desde la red (${interfaz}): http://${direccion.address}:${puertoBackend}`);
+      }
+    }
+  },
 );
 servidor.on("error", async (error) => {
   console.error(`No se pudo iniciar el backend: ${error.message}`);
+  gateway.cerrar();
   await gestor.cerrar();
   process.exitCode = 1;
 });
@@ -62,6 +77,7 @@ let cerrando = false;
 async function cerrar() {
   if (cerrando) return;
   cerrando = true;
+  gateway.cerrar();
   await gestor.cerrar();
   servidor.close(() => {
     process.exitCode = 0;

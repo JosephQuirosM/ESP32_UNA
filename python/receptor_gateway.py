@@ -255,6 +255,58 @@ class AnunciadorUdp:
                 self._detener.wait(3)
 
 
+class EscuchaGatewayUdp:
+    """Alternativa por CLI: responde a los anuncios del ESP32, sin emitir broadcast."""
+
+    def __init__(self, puerto_udp: int, puerto_http: int) -> None:
+        self._puerto_http = puerto_http
+        self._detener = threading.Event()
+        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            self._socket.bind(("0.0.0.0", puerto_udp))
+            self._socket.settimeout(0.5)
+        except OSError:
+            self._socket.close()
+            raise
+        self._hilo = threading.Thread(target=self._escuchar, name="descubrimiento-gateway", daemon=True)
+
+    def iniciar(self) -> None:
+        self._hilo.start()
+
+    def cerrar(self) -> None:
+        self._detener.set()
+        self._socket.close()
+        if self._hilo.ident is not None:
+            self._hilo.join(timeout=3)
+
+    def _escuchar(self) -> None:
+        prefijo = b"HEATMAP_GATEWAY_V1 "
+        while not self._detener.is_set():
+            try:
+                mensaje, origen = self._socket.recvfrom(1025)
+                if len(mensaje) > 1024 or not mensaje.startswith(prefijo):
+                    continue
+                anuncio = json.loads(mensaje[len(prefijo):])
+                if not isinstance(anuncio, dict):
+                    continue
+                sesion = anuncio.get("sesion")
+                mac = anuncio.get("mac")
+                if type(sesion) is not int or not 0 < sesion <= MAXIMO_UINT32:
+                    continue
+                if not isinstance(mac, str) or not re.fullmatch(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", mac):
+                    continue
+                respuesta = f"HEATMAP_PC_V2 {sesion} {self._puerto_http}".encode("ascii")
+                self._socket.sendto(respuesta, origen)
+            except socket.timeout:
+                continue
+            except (ValueError, UnicodeError):
+                continue
+            except OSError as error:
+                if not self._detener.is_set():
+                    print(f"Aviso: fallo UDP del Gateway: {error}", file=sys.stderr, flush=True)
+                    self._detener.wait(0.5)
+
+
 def argumentos() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Registra lecturas RSSI recibidas desde el Gateway.")
     parser.add_argument("--archivo", type=Path, default=Path("data/raw/lecturas_mvp.csv"))
@@ -262,6 +314,11 @@ def argumentos() -> argparse.Namespace:
     parser.add_argument("--puerto-http", type=int, default=8080)
     parser.add_argument("--destino-udp", default="192.168.4.255")
     parser.add_argument("--puerto-udp", type=int, default=4210)
+    descubrimiento = parser.add_mutually_exclusive_group()
+    descubrimiento.add_argument("--sin-anuncio-udp", action="store_true",
+                        help="Delega el descubrimiento del Gateway al backend, sin anuncios desde Python")
+    descubrimiento.add_argument("--anuncio-udp-legacy", action="store_true",
+                                help="Usa el anuncio desde la PC para firmware anterior")
     parser.add_argument("--duracion", type=float, help="Segundos de captura desde que el receptor esté listo")
     parser.add_argument("--control-json", action="store_true", help="Publica estado JSON y acepta detener por entrada estándar")
     parser.add_argument("--nuevo", action="store_true", help="Crea un CSV nuevo sin anexar ni sobrescribir")
@@ -315,14 +372,17 @@ def main() -> int:
     signal.signal(signal.SIGINT, solicitar_cierre)
     signal.signal(signal.SIGTERM, solicitar_cierre)
     servidor: ServidorRegistros | None = None
-    anunciador: AnunciadorUdp | None = None
+    anunciador: AnunciadorUdp | EscuchaGatewayUdp | None = None
     hilo_servidor: threading.Thread | None = None
     fallo: Exception | None = None
     try:
         servidor = ServidorRegistros((args.host, args.puerto_http), escritor)
         escritor.iniciar()
-        anunciador = AnunciadorUdp(args.destino_udp, args.puerto_udp, args.puerto_http)
-        anunciador.iniciar()
+        if not args.sin_anuncio_udp:
+            anunciador = (AnunciadorUdp(args.destino_udp, args.puerto_udp, args.puerto_http)
+                          if args.anuncio_udp_legacy else
+                          EscuchaGatewayUdp(args.puerto_udp, args.puerto_http))
+            anunciador.iniciar()
         hilo_servidor = threading.Thread(target=servidor.serve_forever, name="servidor-http", daemon=True)
         hilo_servidor.start()
         inicio = datetime.now(timezone.utc)

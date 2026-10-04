@@ -20,12 +20,31 @@ export interface Captura extends SolicitudLectura {
 }
 export interface EstadoServidor {
   actual: Captura | null;
+  gateway: EstadoGateway;
   receptor: {
     host: string;
     puertoHttp: number;
     destinoUdp: string;
     puertoUdp: number;
   };
+}
+export interface GatewayDetectado {
+  mac: string;
+  ip: string;
+  sesion: number;
+  canal: number;
+  uptimeMs: number;
+  registrosRecibidos: number;
+  registrosEnviados: number;
+  fallosHttp: number;
+  pcConfirmada: boolean;
+  ultimaVezUtc: string;
+  conectado: boolean;
+}
+export interface EstadoGateway {
+  escuchando: boolean;
+  error: string | null;
+  dispositivos: GatewayDetectado[];
 }
 export function capturaActiva(captura: Captura | null): boolean {
   return (

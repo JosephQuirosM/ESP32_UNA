@@ -12,7 +12,7 @@ npm run build
 npm start
 ```
 
-Abra `http://localhost:8000`. Consulte `../backend/README.md` para configuración, API y detalles de la captura.
+En la PC abra `http://localhost:8000`; desde el móvil conectado al hotspot, `http://IP_DE_LA_PC:8000`. El backend muestra las direcciones de acceso al arrancar. Consulte `../backend/README.md` para configuración, API y detalles de la captura.
 
 ## Desarrollo de la interfaz
 
@@ -22,7 +22,7 @@ Con el backend iniciado en 8000:
 npm run dev --prefix frontend
 ```
 
-Vite redirige las peticiones `/api` al backend de esta PC. `npm run build --prefix frontend` comprueba TypeScript y genera `dist/`, que el backend sirve junto con su API. Publicar solamente `dist/` en un servidor estático no proporciona la recolección Python.
+En desarrollo, abra `http://localhost:5173` en la PC o `http://IP_DEL_HOTSPOT:5173` en el móvil. Vite escucha en todas las interfaces, mantiene el puerto 5173 y redirige `/api` al backend de esta PC en 8000. Reinicie la terminal de Vite después de cambiar su configuración; el firewall debe permitir TCP 5173 desde el hotspot. `npm run build --prefix frontend` comprueba TypeScript y genera `dist/`, que el backend sirve junto con su API. Publicar solamente `dist/` en un servidor estático no proporciona la recolección Python.
 
 ## Flujos
 

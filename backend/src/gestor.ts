@@ -307,6 +307,7 @@ export class GestorLecturas {
       "--duracion",
       String(solicitud.duracionSegundos),
       "--control-json",
+      "--sin-anuncio-udp",
       "--nuevo",
       "--estado-json",
       this.rutaEstado(captura.id),

@@ -21,6 +21,7 @@ import {
 } from "./api";
 import { dimensionValida, generarZonas, MAXIMO_DIMENSION } from "./cuadricula";
 import Cuadricula from "./Cuadricula";
+import { crearSolicitudId } from "./solicitudId";
 
 type Fase =
   | "configuracion"
@@ -94,6 +95,9 @@ function recuperar(): Sesion {
       !Array.isArray(valor.omitidas)
     )
       return inicial;
+    // Recupera un inicio que falló antes de crear y enviar su identificador.
+    if (valor.fase === "captura" && !valor.solicitud && !valor.captura)
+      return { ...valor, fase: valor.modo === "guiado" ? "esperando" : "configuracion" };
     return valor;
   } catch {
     return inicial;
@@ -250,8 +254,16 @@ export default function Lecturas({
   function iniciar(nombreArchivo?: string) {
     const previa = sesionRef.current;
     if (ocupadoRef.current || previa.solicitud) return;
+    let solicitudId: string;
+    try {
+      solicitudId = crearSolicitudId();
+    } catch (error) {
+      setError((error as Error).message);
+      actualizar({ fase: previa.modo === "guiado" ? "esperando" : "configuracion" });
+      return;
+    }
     const solicitud: SolicitudLectura = {
-      solicitudId: crypto.randomUUID(),
+      solicitudId,
       nombreArchivo:
         nombreArchivo ?? `${previa.nombre}_zona_${previa.indice + 1}`,
       duracionSegundos: Number(previa.duracion),
