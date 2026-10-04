@@ -1,6 +1,6 @@
 # MVP: mapa de calor RSSI con ESP32
 
-Este repositorio implementa la primera captura de datos del mapa de calor: 1 jugador, 4 torres ESP32 y 1 Gateway. El resultado de esta codificación es un CSV de lecturas RSSI versionado; la calibración, clasificación y heatmap quedan para una fase posterior.
+Este repositorio implementa el MVP de un mapa de calor RSSI: 1 jugador, 4 torres ESP32 y 1 Gateway. El checkpoint actual conserva la comunicación, el receptor y el pipeline KNN, pero no contiene datasets, modelos entrenados ni resultados experimentales.
 
 ## Arquitectura
 
@@ -14,7 +14,7 @@ PC -- anuncio UDP --> Gateway -- HTTP POST --> PC/receptor CSV
 
 El Gateway levanta la red `MapaCalor_MVP` en canal 6. La PC se conecta a ella, anuncia cada tres segundos el puerto del receptor HTTP y recibe lotes JSON v3 en `/v1/registros`. El protocolo ESP-NOW también es v3; los seis dispositivos deben tener esta misma versión cargada.
 
-> Estado de captura: la primera prueba física v2 obtuvo 29.47 % de vectores RSSI completos. La captura estática v3_1 alcanzó 99.91 % y ya validó la mitigación en laboratorio; falta probar movimiento y el área real antes de calibrar. Consulte [el informe v3_1](data/processed/informe_captura_v3_1.md).
+> Estado actual: preparar una nueva calibración 3×3 de 6 m × 2,5 m. Los datos anteriores fueron eliminados deliberadamente; no deben usarse ni citarse como línea base.
 
 ## Requisitos
 
@@ -33,7 +33,7 @@ El Gateway levanta la red `MapaCalor_MVP` en canal 6. La PC se conecta a ella, a
 
 No es necesario cambiar el ID al cargar cada jugador o torre. Con `ID_JUGADOR_RESPALDO=0` e `ID_TORRE_RESPALDO=0`, el Gateway asigna los IDs dinámicamente según la MAC durante cada arranque. Los cuatro GPIO del driver de motores integrado se fuerzan a nivel bajo al iniciar para evitar activaciones accidentales.
 
-Importante para el futuro KNN: el `torre_id` dinámico sirve para la comunicación, no para representar una posición física. La conversión a columnas del modelo debe hacerse por MAC usando [el mapa de torres físicas](docs/mapa_torres_fisicas.md).
+Importante para KNN: el `torre_id` dinámico sirve para la comunicación, no para representar una posición física. Para la calibración de 6 m × 2,5 m, la conversión a columnas del modelo debe hacerse por MAC usando [el mapa de torres físicas](docs/mapa_torres_fisicas.md).
 
 Las rutas relativas a `../Comun` son intencionales: `Paquete.h`, `RadioComun.h` y `LedEstado.h` se comparten entre los tres sketches. No mueva cada `.ino` fuera de su carpeta.
 
@@ -52,6 +52,38 @@ Ejecute las pruebas locales con:
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+## Checkpoint: nueva calibración 6 m × 2,5 m
+
+El MVP usa la identidad física de las torres (MAC), nunca el `torre_id` dinámico. La fuente de verdad es [docs/mapa_torres_fisicas.md](docs/mapa_torres_fisicas.md). Sus características tienen siempre este orden: superior izquierda, superior derecha, inferior izquierda e inferior derecha.
+
+Instale las dependencias de análisis una vez:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+Cuando se haya capturado el nuevo CSV de calibración, se procesará así:
+
+```bash
+.venv/bin/python python/preprocesar_calibracion.py \
+  data/raw/calibracion_6x2_5m_nueva.csv \
+  --salida data/processed/calibracion_6x2_5m_nueva.csv \
+  --resumen data/processed/calibracion_6x2_5m_nueva_resumen.json
+
+.venv/bin/python python/entrenar_knn.py data/processed/calibracion_6x2_5m_nueva.csv \
+  --modelo models/knn_mvp_6x2_5m_nueva.joblib \
+  --metricas data/processed/evaluacion_knn_mvp_6x2_5m_nueva.md \
+  --metadata models/knn_mvp_6x2_5m_nueva.json
+
+.venv/bin/python python/reproducir_mapa_calor.py data/processed/calibracion_6x2_5m_nueva.csv \
+  --modelo models/knn_mvp_6x2_5m_nueva.joblib \
+  --predicciones data/processed/predicciones_knn_mvp_6x2_5m_nueva.csv \
+  --mapa data/processed/mapa_calor_knn_mvp_6x2_5m_nueva.png
+```
+
+El preprocesamiento actual etiqueta zonas 1 a 9 en bloques consecutivos de **60 segundos** y elimina los primeros **6 segundos** de cada bloque. Antes de capturar, confirme que este protocolo coincide con el recorrido físico planificado. Toda nueva sesión debe conservar su identidad para que la evaluación no mezcle capturas temporalmente correlacionadas.
 
 Después de una captura real, genere el informe de integridad con:
 
@@ -74,7 +106,7 @@ Consulte [docs/prueba_campo_captura.md](docs/prueba_campo_captura.md) antes de r
 - Si aparece `HTTP no entregó lote`, revise que el firewall de la PC permita conexiones al puerto 8080 desde la red del Gateway.
 - Los IDs se reservan por MAC mientras el Gateway está encendido; reiniciarlo reinicia esa reserva. Cada torre debe mostrar un ID distinto por serial.
 - Cada torre debe mostrar `gateway_unicast=si`. `tx_fallidas` o `descartes_cola` crecientes identifican un problema anterior a HTTP.
-- Inicie primero Gateway, PC y receptor; espere `PC descubierta` antes de encender torres y jugador. La primera captura perdió registros al acumular telemetría antes de tener destino HTTP.
+- Inicie primero Gateway, PC y receptor; espere `PC descubierta` antes de encender torres y jugador para que exista destino HTTP antes de transmitir telemetría.
 - No reutilice un CSV entre pruebas: el receptor anexa filas y puede mezclar sesiones de jugador.
 
 Consulte [docs/contexto.md](docs/contexto.md) para rutas y flujo detallado.

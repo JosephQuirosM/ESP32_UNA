@@ -1,0 +1,303 @@
+<!DOCTYPE html><html lang="es" style=""><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><meta content="web_standard" name="shell-type"><title>Mapa de Calor ESP32</title><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-dim":"#cddbf2","surface-container-low":"#eff4ff","tertiary-fixed-dim":"#ffb95f","error-container":"#ffdad6","surface-bright":"#f8f9ff","inverse-surface":"#243143","on-primary":"#ffffff","surface-container":"#e6eeff","outline-variant":"#c3c5d7","on-primary-container":"#d4dcff","on-surface-variant":"#434654","on-background":"#0f1c2d","surface":"#f8f9ff","on-secondary":"#ffffff","on-tertiary-fixed-variant":"#653e00","outline":"#737686","error":"#ba1a1a","on-secondary-container":"#00714c","on-secondary-fixed-variant":"#005236","tertiary-fixed":"#ffddb8","on-secondary-fixed":"#002113","inverse-on-surface":"#eaf1ff","on-primary-fixed":"#00174d","tertiary":"#694100","on-primary-fixed-variant":"#003dab","inverse-primary":"#b5c4ff","primary-fixed-dim":"#b5c4ff","surface-container-lowest":"#ffffff","surface-tint":"#1353d8","surface-container-high":"#dce9ff","on-tertiary-container":"#ffd6a8","secondary-container":"#7ef6be","primary-fixed":"#dbe1ff","primary-container":"#1a56db","background":"#f8f9ff","on-error":"#ffffff","surface-container-highest":"#d6e3fb","secondary-fixed-dim":"#63dca6","on-error-container":"#93000a","tertiary-container":"#895600","on-tertiary":"#ffffff","secondary":"#006c49","on-surface":"#0f1c2d","primary":"#003fb1","surface-variant":"#d6e3fb","on-tertiary-fixed":"#2a1700","secondary-fixed":"#81f9c1"},borderRadius:{DEFAULT:"0.25rem",lg:"0.5rem",xl:"0.75rem",full:"9999px"},spacing:{"space-md":"1rem","margin-desktop":"2rem",gutter:"1rem","space-sm":"0.5rem","gutter-desktop":"1.5rem","space-xl":"2rem","space-xs":"0.25rem",margin:"1rem","space-lg":"1.5rem"},fontFamily:{"display-timer":["Inter"],"body-md":["Inter"],"label-md":["Inter"],"headline-lg-mobile":["Inter"],"headline-lg":["Inter"],"display-timer-mobile":["Inter"],"code-filename":["Inter"],"headline-md":["Inter"],"label-lg":["Inter"],"title-sm":["Inter"],"body-lg":["Inter"]},fontSize:{"display-timer":["56px",{lineHeight:"64px",letterSpacing:"-0.03em",fontWeight:"700"}],"body-md":["14px",{lineHeight:"20px",fontWeight:"400"}],"label-md":["12px",{lineHeight:"16px",letterSpacing:"0.02em",fontWeight:"600"}],"headline-lg-mobile":["24px",{lineHeight:"32px",letterSpacing:"-0.01em",fontWeight:"700"}],"headline-lg":["32px",{lineHeight:"40px",letterSpacing:"-0.02em",fontWeight:"700"}],"display-timer-mobile":["40px",{lineHeight:"48px",letterSpacing:"-0.02em",fontWeight:"700"}],"code-filename":["13px",{lineHeight:"18px",fontWeight:"500"}],"headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],"label-lg":["14px",{lineHeight:"20px",letterSpacing:"0.01em",fontWeight:"600"}],"title-sm":["16px",{lineHeight:"24px",fontWeight:"600"}],"body-lg":["16px",{lineHeight:"24px",fontWeight:"400"}]}}}};</script></head><body class="bg-surface font-body-md text-on-surface antialiased min-h-screen flex flex-col"><div class="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm transition-opacity duration-300 hidden pointer-events-none" id="sideDrawerBackdrop" onclick="const b = document.getElementById('sideDrawerBackdrop'); const p = document.getElementById('sideDrawerPanel'); p.classList.add('-translate-x-full'); p.style.transform = 'translateX(-100%)'; setTimeout(() =&gt; { b.style.display = 'none'; b.classList.add('hidden', 'pointer-events-none'); p.style.display = 'none'; }, 300);" style="display: none;"></div><aside aria-label="Panel lateral de módulos" class="fixed top-0 left-0 bottom-0 z-50 w-80 max-w-[85vw] bg-surface-container-lowest shadow-2xl flex flex-col justify-between transition-transform duration-300 ease-in-out -translate-x-full border-r border-outline-variant/30" id="sideDrawerPanel" style="transform: translateX(-100%); display: none;"><div class="flex flex-col h-full overflow-y-auto"><div class="p-space-md border-b border-outline-variant/20 flex items-center justify-between bg-surface-container-low"><div class="flex items-center gap-space-sm"><div class="w-10 h-10 rounded-xl bg-primary-container text-on-primary flex items-center justify-center shadow-sm"><span class="material-symbols-outlined text-[22px]">grid_view</span></div><div><h3 class="font-title-sm text-title-sm text-on-surface leading-tight">Módulos del Sistema</h3><span class="font-label-md text-label-md text-on-surface-variant">Plataforma ESP32 RSSI</span></div></div><button aria-label="Cerrar panel" class="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors" id="closeDrawerBtn" onclick="const b = document.getElementById('sideDrawerBackdrop'); const p = document.getElementById('sideDrawerPanel'); p.classList.add('-translate-x-full'); p.style.transform = 'translateX(-100%)'; setTimeout(() =&gt; { b.style.display = 'none'; b.classList.add('hidden', 'pointer-events-none'); p.style.display = 'none'; }, 300);"><span class="material-symbols-outlined text-[20px]">close</span></button></div><div class="p-space-md flex flex-col gap-space-sm"><span class="font-label-md text-label-md text-on-surface-variant uppercase font-semibold tracking-wider px-space-xs">Módulos de Trabajo</span><div class="flex flex-col gap-space-xs"><a class="p-space-sm rounded-xl bg-primary-container text-on-primary flex items-center justify-between shadow-sm transition-all" data-path="captura-cuadricula" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[22px]">grid_guides</span><div class="flex flex-col text-left"><span class="font-label-lg text-label-lg font-semibold leading-tight">Recolección de Señal</span><span class="text-[11px] text-on-primary-container opacity-90">Matriz 3×3 activa</span></div></div><span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-semibold text-[10px] uppercase">Activo</span></a><div class="p-space-sm rounded-xl bg-surface-container-low/60 text-on-surface-variant flex items-center justify-between border border-outline-variant/20 opacity-80"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[22px] text-outline">filter_alt</span><div class="flex flex-col text-left"><span class="font-label-lg text-label-lg font-medium text-on-surface leading-tight">Preparación de Datos</span><span class="text-[11px] text-on-surface-variant">Kalman &amp; Outliers IQR</span></div></div><span class="px-2 py-0.5 rounded bg-surface-container text-outline text-[10px] font-semibold uppercase">Próx.</span></div><div class="p-space-sm rounded-xl bg-surface-container-low/60 text-on-surface-variant flex items-center justify-between border border-outline-variant/20 opacity-80"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[22px] text-outline">model_training</span><div class="flex flex-col text-left"><span class="font-label-lg text-label-lg font-medium text-on-surface leading-tight">Entrenamiento Modelos</span><span class="text-[11px] text-on-surface-variant">KNN &amp; Random Forest</span></div></div><span class="px-2 py-0.5 rounded bg-surface-container text-outline text-[10px] font-semibold uppercase">Próx.</span></div><div class="p-space-sm rounded-xl bg-surface-container-low/60 text-on-surface-variant flex items-center justify-between border border-outline-variant/20 opacity-80"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[22px] text-outline">heat_pump</span><div class="flex flex-col text-left"><span class="font-label-lg text-label-lg font-medium text-on-surface leading-tight">Mapas de Calor</span><span class="text-[11px] text-on-surface-variant">Interpolación Kriging 2D</span></div></div><span class="px-2 py-0.5 rounded bg-surface-container text-outline text-[10px] font-semibold uppercase">Próx.</span></div></div></div><div class="px-space-md py-space-sm flex flex-col gap-space-sm"><span class="font-label-md text-label-md text-on-surface-variant uppercase font-semibold tracking-wider px-space-xs">Accesos Rápidos</span><div class="flex flex-col gap-1"><a class="flex items-center gap-space-sm px-space-sm py-space-xs rounded-lg text-on-surface hover:bg-surface-container transition-colors font-label-lg text-label-lg" data-path="registros-csv" href="#"><span class="material-symbols-outlined text-primary text-[20px]">table_chart</span><span class="">Datasets Recolectados</span></a><a class="flex items-center gap-space-sm px-space-sm py-space-xs rounded-lg text-on-surface hover:bg-surface-container transition-colors font-label-lg text-label-lg" data-path="configuracion-gateway" href="#"><span class="material-symbols-outlined text-primary text-[20px]">settings_input_antenna</span><span class="">Ajustes del Gateway</span></a><a class="flex items-center gap-space-sm px-space-sm py-space-xs rounded-lg text-on-surface hover:bg-surface-container transition-colors font-label-lg text-label-lg" data-path="guia-conexion" href="#"><span class="material-symbols-outlined text-primary text-[20px]">help_center</span><span class="">Guía de Conexión</span></a></div></div><div class="mt-auto p-space-md bg-surface-container-low border-t border-outline-variant/20 flex flex-col gap-space-xs"><div class="flex items-center justify-between"><span class="font-label-md text-label-md text-on-surface-variant">Estado del Sistema</span><span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span></div><div class="flex flex-col gap-1 bg-surface-container-lowest p-space-sm rounded-lg border border-outline-variant/20"><div class="flex items-center justify-between text-[11px]"><span class="text-on-surface-variant">Python 8000:</span><span class="font-code-filename text-secondary font-semibold">En línea</span></div><div class="flex items-center justify-between text-[11px]"><span class="text-on-surface-variant">Gateway ESP32:</span><span class="font-code-filename text-primary font-semibold">192.168.1.45</span></div></div></div></div></aside><header class="fixed top-0 w-full z-50 bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 w-full px-space-md lg:px-margin-desktop flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-md"><button aria-label="Abrir módulos" class="w-10 h-10 rounded-lg flex items-center justify-center text-on-surface hover:bg-surface-container-high transition-colors focus:outline-none" id="openDrawerBtn" onclick="const b = document.getElementById('sideDrawerBackdrop'); const p = document.getElementById('sideDrawerPanel'); b.style.display = 'block'; b.classList.remove('hidden', 'pointer-events-none'); p.style.display = 'flex'; setTimeout(() =&gt; { p.classList.remove('-translate-x-full'); p.style.transform = 'translateX(0)'; }, 10);" title="Abrir módulos"><span class="material-symbols-outlined text-[24px]">menu</span></button><img alt="Logo Mapa de Calor ESP32" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1UD4DdCLI5rp39BvSPeBP_QWIruunKGw_Len9LEvABBJwJOHlWEn2rIPGjNzS4NJ3hT5WZcgjmiW_egefZMwMahlgp-vwkVqjE-ImfXeiLFe_sCddaiPiVRiteXlGVuetVoL_4z9uFjDPhUfgjEm9u_rECRjA_OEA2wtVk2DbEa2BgZKaRWcvMKHo17Cm6PMLm67sM5m_0zBbZw91ujCaplt7El1f3sw77DIjtdKB6qv2ioWiQU3HxgDQ"><div class="flex flex-col"><span class="font-title-sm text-title-sm text-on-surface leading-tight tracking-tight">Mapa de Calor ESP32</span><span class="font-label-md text-label-md text-on-surface-variant hidden sm:inline">Panel administrativo&nbsp;</span></div></div><div class="hidden xl:flex items-center gap-space-sm bg-surface-container-low px-space-md py-space-xs rounded-full shadow-[0_1px_3px_rgba(15,23,42,0.04)]"><span class="w-2.5 h-2.5 rounded-full bg-secondary animate-pulse"></span><span class="font-code-filename text-code-filename text-on-surface-variant"><strong class="text-on-surface font-semibold">Servicio Python:</strong> Conectado (192.168.1.45:8000) • <strong class="text-on-surface font-semibold">Gateway ESP32:</strong> Recibiendo paquetes</span></div><nav class="flex items-center gap-space-xs lg:gap-space-sm" data-active-classes="bg-primary-container text-on-primary font-label-lg rounded-lg shadow-sm"><a aria-current="page" class="px-space-sm lg:px-space-md py-space-xs transition-colors bg-primary-container text-on-primary font-label-lg rounded-lg shadow-sm" data-path="captura-cuadricula" href="#">Captura</a><a class="px-space-sm lg:px-space-md py-space-xs rounded-lg font-label-lg text-label-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="configuracion-gateway" href="#">Gateway</a><a class="px-space-sm lg:px-space-md py-space-xs rounded-lg font-label-lg text-label-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="registros-csv" href="#">Datasets</a><a class="px-space-sm lg:px-space-md py-space-xs rounded-lg font-label-lg text-label-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="guia-conexion" href="#">Ayuda</a></nav><div class="flex items-center gap-space-sm"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-16 bg-surface flex-1"><div class="flex flex-col w-full">
+<div class="w-full px-space-md lg:px-margin-desktop py-space-xl flex flex-col gap-space-xl max-w-7xl mx-auto">
+<!-- Encabezado de Bienvenida -->
+<div class="relative overflow-hidden bg-surface-container-low rounded-xl p-space-lg lg:p-space-xl shadow-sm">
+<div class="absolute -right-16 -top-16 w-64 h-64 bg-primary/5 rounded-full blur-3xl pointer-events-none"></div>
+<div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-space-lg relative z-10">
+<div class="flex flex-col gap-space-xs max-w-3xl">
+<div class="flex items-center gap-space-xs font-label-md text-label-md text-primary font-semibold">
+<span class="material-symbols-outlined text-[18px]">cell_tower</span>
+<span class="">PLATAFORMA TELEMÉTRICA EXPERIMENTAL</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">
+            Sistema de Posicionamiento ESP32
+          </h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant">
+            Gestiona la recolección de mediciones de señal para entrenamiento y calibración de cuadrículas. Diseñado para captura ágil.
+          </p>
+</div>
+<!-- Mini resumen de sesión -->
+
+</div>
+</div>
+<!-- Barra de Estado del Sistema -->
+<div class="bg-surface-container-lowest rounded-xl p-space-md lg:p-space-lg shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-xs font-label-lg text-label-lg text-on-surface font-semibold">
+<span class="material-symbols-outlined text-primary text-[20px]">monitor_heart</span>
+<span class="">Estado del Sistema</span>
+</div>
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:flex items-center gap-space-md flex-1 md:justify-end">
+<!-- Servicio Python -->
+<div class="flex items-center gap-space-sm bg-surface-container px-space-md py-space-xs rounded-lg">
+<span class="w-2.5 h-2.5 rounded-full bg-secondary animate-pulse"></span>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface-variant">Servidor Local Python</span>
+<span class="font-code-filename text-code-filename text-on-surface font-semibold">En línea: 192.168.1.45:8000</span>
+</div>
+</div>
+<!-- Gateway ESP32 -->
+<div class="flex items-center gap-space-sm bg-surface-container px-space-md py-space-xs rounded-lg">
+<span class="material-symbols-outlined text-secondary text-[20px]">sensors</span>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface-variant">Gateway ESP32</span>
+<div class="flex items-center gap-space-xs">
+<span class="font-code-filename text-code-filename text-on-surface font-semibold">Conectado</span>
+<span class="font-label-md text-label-md text-secondary-fixed-dim bg-secondary px-1.5 py-0.2 rounded font-semibold text-[10px]">PAQUETES ACTIVOS</span>
+</div>
+</div>
+</div>
+<!-- Telemetría RSSI Snapshot -->
+</div>
+</div>
+<!-- Grilla de Módulos (4 Tarjetas) -->
+<div class="flex flex-col gap-space-md">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
+<h2 class="font-headline-md text-headline-md text-on-surface">Módulos de Trabajo</h2>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-space-lg">
+<!-- TARJETA 1 (ACTIVA): Recolección de Señal -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg flex flex-col justify-between shadow-md relative overflow-hidden transition-all duration-300 transform hover:-translate-y-1">
+<div class="absolute top-0 left-0 right-0 h-1.5 bg-primary-container"></div>
+<div class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="w-12 h-12 rounded-xl bg-primary-container text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[26px]">grid_guides</span>
+</div>
+
+</div>
+<div class="flex flex-col gap-space-xs">
+<h3 class="font-title-sm text-title-sm text-on-surface">Recolección de Datos</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                Graba datasets de telemetría RSSI por zona desde tu PC portátil o dispositivo móvil en campo.
+              </p>
+</div>
+<!-- Estado Normal (Sin campaña) -->
+
+<!-- Estado Alternativo (Campaña en Curso Simulado) -->
+<div class="hidden flex flex-col gap-space-xs bg-error-container/30 p-space-sm rounded-lg" id="stateRunning">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs font-label-md text-label-md text-error font-semibold">
+<span class="w-2 h-2 rounded-full bg-error animate-ping"></span>
+<span class="">Campaña activa en curso</span>
+</div>
+<span class="font-code-filename text-code-filename text-error font-bold">Zona 3 de 9</span>
+</div>
+<div class="w-full bg-surface-container-high h-2 rounded-full overflow-hidden">
+<div class="bg-error h-full rounded-full w-1/3"></div>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant leading-tight">
+                No se permite crear una segunda campaña concurrente. Finalice la sesión en curso.
+              </span>
+</div>
+</div>
+<div class="pt-space-lg flex flex-col gap-space-xs">
+<a class="w-full min-h-[48px] bg-primary-container hover:bg-primary text-on-primary font-label-lg text-label-lg rounded-xl flex items-center justify-center gap-space-sm shadow-sm transition-all" data-path="captura-cuadricula" href="#" id="actionIdleBtn">
+<span class="">Empezar recolección</span>
+<span class="material-symbols-outlined text-[20px]">arrow_forward</span>
+</a>
+<a class="hidden w-full min-h-[48px] bg-error hover:bg-on-error-container text-on-error font-label-lg text-label-lg rounded-xl flex items-center justify-center gap-space-sm shadow-sm transition-all" data-path="captura-cuadricula" href="#" id="actionRunningBtn">
+<span class="material-symbols-outlined text-[20px]">play_arrow</span>
+<span class="">Continuar recolección</span>
+</a>
+</div>
+</div>
+<!-- TARJETA 2 (PRÓXIMAMENTE): Preparación de Datos -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg flex flex-col justify-between shadow-sm relative overflow-hidden opacity-90">
+<div class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="w-12 h-12 rounded-xl bg-surface-container text-on-surface-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[26px]">filter_alt</span>
+</div>
+<span class="font-label-md text-label-md px-space-sm py-0.5 rounded-full bg-surface-container-high text-on-surface-variant font-semibold uppercase">
+                Próximamente
+              </span>
+</div>
+<div class="flex flex-col gap-space-xs">
+<h3 class="font-title-sm text-title-sm text-on-surface">Preparación de Datos</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                Filtrado de ruido, normalización de lecturas RSSI y etiquetado multivariante para exportación.
+              </p>
+</div>
+<!-- Detalle técnico preview -->
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col gap-space-xs">
+<span class="font-label-md text-label-md text-on-surface-variant font-semibold">Técnicas en desarrollo:</span>
+<div class="flex flex-wrap gap-1">
+<span class="font-code-filename text-code-filename bg-surface-container px-1.5 py-0.5 rounded text-on-surface-variant">Filtro Kalman</span>
+<span class="font-code-filename text-code-filename bg-surface-container px-1.5 py-0.5 rounded text-on-surface-variant">Outliers IQR</span>
+</div>
+</div>
+</div>
+<div class="pt-space-lg">
+<button class="w-full min-h-[48px] bg-surface-container-high text-outline cursor-not-allowed font-label-lg text-label-lg rounded-xl flex items-center justify-center gap-space-xs" disabled="">
+<span class="material-symbols-outlined text-[18px]">lock</span>
+<span class="">En desarrollo</span>
+</button>
+</div>
+</div>
+<!-- TARJETA 3 (PRÓXIMAMENTE): Entrenamiento de Modelos -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg flex flex-col justify-between shadow-sm relative overflow-hidden opacity-90">
+<div class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="w-12 h-12 rounded-xl bg-surface-container text-on-surface-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[26px]">model_training</span>
+</div>
+<span class="font-label-md text-label-md px-space-sm py-0.5 rounded-full bg-surface-container-high text-on-surface-variant font-semibold uppercase">
+                Próximamente
+              </span>
+</div>
+<div class="flex flex-col gap-space-xs">
+<h3 class="font-title-sm text-title-sm text-on-surface">Entrenamiento de Modelos</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                Generación de clasificadores de posición usando KNN y Random Forest basados en los datasets recolectados.
+              </p>
+</div>
+<!-- Detalle técnico preview -->
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col gap-space-xs">
+<span class="font-label-md text-label-md text-on-surface-variant font-semibold">Algoritmos base:</span>
+<div class="flex flex-wrap gap-1">
+<span class="font-code-filename text-code-filename bg-surface-container px-1.5 py-0.5 rounded text-on-surface-variant">k-NN Weighted</span>
+<span class="font-code-filename text-code-filename bg-surface-container px-1.5 py-0.5 rounded text-on-surface-variant">Random Forest</span>
+</div>
+</div>
+</div>
+<div class="pt-space-lg">
+<button class="w-full min-h-[48px] bg-surface-container-high text-outline cursor-not-allowed font-label-lg text-label-lg rounded-xl flex items-center justify-center gap-space-xs" disabled="">
+<span class="material-symbols-outlined text-[18px]">lock</span>
+<span class="">En desarrollo</span>
+</button>
+</div>
+</div>
+<!-- TARJETA 4 (PRÓXIMAMENTE): Mapas de Calor -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg flex flex-col justify-between shadow-sm relative overflow-hidden opacity-90">
+<div class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="w-12 h-12 rounded-xl bg-surface-container text-on-surface-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[26px]">heat_pump</span>
+</div>
+<span class="font-label-md text-label-md px-space-sm py-0.5 rounded-full bg-surface-container-high text-on-surface-variant font-semibold uppercase">
+                Próximamente
+              </span>
+</div>
+<div class="flex flex-col gap-space-xs">
+<h3 class="font-title-sm text-title-sm text-on-surface">Mapas de Calor</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                Visualización 2D de cobertura de potencia RSSI e inferencia de ubicación en tiempo real sobre planos.
+              </p>
+</div>
+<!-- Detalle técnico preview -->
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col gap-space-xs">
+<span class="font-label-md text-label-md text-on-surface-variant font-semibold">Renderizado espacial:</span>
+<div class="flex flex-wrap gap-1">
+<span class="font-code-filename text-code-filename bg-surface-container px-1.5 py-0.5 rounded text-on-surface-variant">Kriging 2D</span>
+<span class="font-code-filename text-code-filename bg-surface-container px-1.5 py-0.5 rounded text-on-surface-variant">Heatmap Canvas</span>
+</div>
+</div>
+</div>
+<div class="pt-space-lg">
+<button class="w-full min-h-[48px] bg-surface-container-high text-outline cursor-not-allowed font-label-lg text-label-lg rounded-xl flex items-center justify-center gap-space-xs" disabled="">
+<span class="material-symbols-outlined text-[18px]">lock</span>
+<span class="">En desarrollo</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Sección Informativa Inferior: 'Cómo funciona la recolección' -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg lg:p-space-xl shadow-sm flex flex-col gap-space-lg">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-xs">
+<div class="flex items-center gap-space-sm">
+<div class="w-10 h-10 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed">
+<span class="material-symbols-outlined text-[22px]">help_outline</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">¿Cómo funciona la recolección?</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Proceso guiado de 3 pasos para técnicos y experimentadores en terreno.</p>
+</div>
+</div>
+<div class="font-label-md text-label-md text-on-surface-variant flex items-center gap-space-xs">
+<span class="material-symbols-outlined text-secondary text-[16px]">folder_special</span>
+<span class="">Formato estándar: CSV UTF-8</span>
+</div>
+</div>
+<!-- 3 Pasos con espaciado generoso -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-space-lg">
+<!-- Paso 1 -->
+<div class="bg-surface-container-low rounded-xl p-space-lg flex flex-col gap-space-sm relative">
+<div class="flex items-center justify-between">
+<span class="w-9 h-9 rounded-full bg-primary-container text-on-primary font-title-sm text-title-sm flex items-center justify-center">1</span>
+<span class="material-symbols-outlined text-primary text-[24px]">tune</span>
+</div>
+<h4 class="font-title-sm text-title-sm text-on-surface pt-space-xs">Configura nombre y tiempo</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">
+            Ingresa el identificador de tu entorno (ej. <code class="font-code-filename text-code-filename bg-surface-container px-1 rounded">lab_redes_piso2</code>) y la duración de muestreo deseada por cuadrante.</p>
+</div>
+<!-- Paso 2 -->
+<div class="bg-surface-container-low rounded-xl p-space-lg flex flex-col gap-space-sm relative">
+<div class="flex items-center justify-between">
+<span class="w-9 h-9 rounded-full bg-primary-container text-on-primary font-title-sm text-title-sm flex items-center justify-center">2</span>
+<span class="material-symbols-outlined text-primary text-[24px]">pin_drop</span>
+</div>
+<h4 class="font-title-sm text-title-sm text-on-surface pt-space-xs">Recorre las zonas marcadas</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">
+            Sigue la cuadrícula física.</p>
+</div>
+<!-- Paso 3 -->
+<div class="bg-surface-container-low rounded-xl p-space-lg flex flex-col gap-space-sm relative">
+<div class="flex items-center justify-between">
+<span class="w-9 h-9 rounded-full bg-secondary text-on-secondary font-title-sm text-title-sm flex items-center justify-center">3</span>
+<span class="material-symbols-outlined text-secondary text-[24px]">save</span>
+</div>
+<h4 class="font-title-sm text-title-sm text-on-surface pt-space-xs">Guardado central automático</h4>
+<p class="font-body-md text-body-md text-on-surface-variant">Los registros se empaquetan y almacenan en el disco duro de la PC receptora organizados por marca de tiempo y zona.
+          </p>
+</div>
+</div>
+<!-- Barra de Ayuda y Datasets Recientes -->
+<div class="flex flex-col sm:flex-row items-center justify-between gap-space-md pt-space-sm bg-surface-container px-space-lg py-space-md rounded-xl">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[20px]">info</span>
+<span class="font-body-md text-body-md text-on-surface">¿Necesitas verificar el puerto serie o cambiar el canal Wi-Fi del Gateway?</span>
+</div>
+<div class="flex items-center gap-space-sm">
+<a class="px-space-md py-space-xs rounded-lg bg-surface-container-lowest text-primary font-label-lg text-label-lg shadow-sm hover:bg-surface-container-high transition-colors" data-path="configuracion-gateway" href="#">
+            Ajustes de Gateway
+          </a>
+<a class="px-space-md py-space-xs rounded-lg bg-primary text-on-primary font-label-lg text-label-lg shadow-sm hover:bg-primary-container transition-colors" data-path="registros-csv" href="#">
+            Explorar Datasets
+          </a>
+</div>
+</div>
+</div>
+</div>
+</div>
+<script>
+  let isCampaignActive = false;
+
+  function toggleActiveCampaign() {
+    isCampaignActive = !isCampaignActive;
+    const idleBox = document.getElementById('stateIdle');
+    const runningBox = document.getElementById('stateRunning');
+    const idleBtn = document.getElementById('actionIdleBtn');
+    const runningBtn = document.getElementById('actionRunningBtn');
+    const toggleText = document.getElementById('toggleText');
+
+    if (isCampaignActive) {
+      idleBox.classList.add('hidden');
+      runningBox.classList.remove('hidden');
+      idleBtn.classList.add('hidden');
+      runningBtn.classList.remove('hidden');
+      toggleText.textContent = "Volver a estado 'Sin campaña'";
+    } else {
+      idleBox.classList.remove('hidden');
+      runningBox.classList.add('hidden');
+      idleBtn.classList.remove('hidden');
+      runningBtn.classList.add('hidden');
+      toggleText.textContent = "Simular campaña en curso";
+    }
+  }
+</script></main><footer class="w-full bg-surface-container-low py-space-md shadow-[0_-1px_8px_rgba(0,0,0,0.02)]"><div class="w-full px-space-md lg:px-margin-desktop flex flex-col sm:flex-row items-center justify-between gap-space-xs text-center sm:text-left"><div class="flex items-center gap-space-xs font-label-md text-label-md text-on-surface-variant"></div><div class="font-label-md text-label-md text-on-surface-variant"></div></div></footer>
+
+
+</body></html>

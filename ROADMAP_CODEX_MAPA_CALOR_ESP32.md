@@ -16,13 +16,11 @@ La información recolectada será procesada en Python para:
 
 El objetivo no es obtener una posición exacta tipo GPS, sino una **posición aproximada e interpolada** basada en patrones de señal.
 
-## Estado de implementación y evidencia 2026 09 06
+## Estado de implementación
 
-Se implementó y compiló la captura RSSI con un jugador, cuatro torres, Gateway y receptor Python. El protocolo vigente en código es versión 3 e incorpora sesiones de Gateway, torre y jugador, IDs dinámicos por MAC, validación de registros y colas separadas de control y telemetría.
+El código dispone de captura RSSI v3 con sesiones de Gateway, torre y jugador, IDs dinámicos resueltos por MAC, validación de registros y colas separadas de control y telemetría. También contiene el pipeline Python de preprocesamiento, KNN y visualización 3×3.
 
-La primera prueba física estática duró aproximadamente diez minutos. La comunicación y el registro CSV funcionaron, pero la sesión principal logró 29.47 % de vectores completos con cuatro torres y 79.64 % con tres o más torres. No se iniciará la Fase 3 de calibración hasta corregir y medir las pérdidas de comunicación. La evidencia y el plan correctivo se conservan en `docs/hallazgos_captura_2026-09-06.md`.
-
-La Codificación 3 quedó implementada y verificada el 2026 09 06: secuencia y sesión propias de torre, telemetría Torre a Gateway unicast, escalonamiento no bloqueante por ID, jitter del jugador, métricas seriales por torre y contrato CSV v3. Los tres firmwares compilan con Arduino-ESP32 3.3.11, las siete pruebas Python pasan y la captura estática `captura_v3_1` alcanzó 99,91 % de vectores completos. El siguiente paso es probar el sistema en el área real con movimiento; la Fase 3 de calibración continúa bloqueada hasta validar estabilidad bajo esas condiciones.
+El checkpoint actual no conserva evidencia experimental, datasets ni modelos entrenados. El siguiente paso es iniciar una nueva campaña de calibración en una zona de 6 m × 2,5 m y producir la primera línea de evidencia de esta etapa.
 
 ---
 
