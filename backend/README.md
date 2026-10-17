@@ -100,3 +100,26 @@ La respuesta incluye los conteos, zonas, procedencia y enlaces `GET /api/prepara
 La preparación acepta `directorioSalida` opcional (carpeta existente, absoluta o relativa al proyecto). Exporta allí el CSV y el JSON sin sobrescribir archivos: usa sufijos `_2`, `_3`, etc. La respuesta incluye `rutaSalida`. Mantiene una copia interna para las descargas. `POST /api/preparacion/seleccionar-carpeta` con `{ruta}` abre el selector nativo en el escritorio de la PC; sin ruta comienza en el proyecto y al cancelar devuelve `ruta: null`. En Linux usa Zenity y necesita una sesión gráfica activa. La exploración y exportación a rutas elegidas requieren una conexión desde la misma PC.
 
 El campo `dataset` es opcional por compatibilidad con entradas antiguas; su ausencia no impide preparar ni entrenar y la web ya no lo envía. No se deduce un dataset por defecto a partir de nombres de archivo.
+
+## API de entrenamiento
+
+Las operaciones de `/api/entrenamiento` requieren una conexión desde esta PC:
+
+- `POST /seleccionar-csv`: abre el selector nativo de archivo CSV y devuelve su ruta (null si se cancela).
+- `POST /inspeccionar` con `{entrada}`: valida un CSV preparado y devuelve cantidades y etiquetas presentes.
+- `POST /` con `{entrada, algoritmo, parametros, nombre, directorioSalida}`: inicia entrenamiento y devuelve HTTP 202 con `id`. Algoritmos: `knn`, `random_forest`. Parámetros KNN: `{k, pesos: "distance"|"uniform", distancia: "euclidean"|"manhattan", normalizar: boolean}`. RF: `{arboles, profundidad: null|entero, min_division, min_hoja, semilla}`.
+- `GET /:id`: consulta estado pendiente, entrenando, completado o error y rutas del resultado.
+- `GET /:id/modelo` y `GET /:id/resumen`: descargan artefactos terminados.
+
+Ejecuta `python/entrenamiento_web.py` con el Python configurado y las dependencias de `requirements.txt`. Conserva solicitud, estado, modelo y resumen en `models/entrenamientos/<UUID>/`. Exporta modelo y resumen a la carpeta elegida, o `models/` por defecto, con nombres libres de colisiones. El CSV original no se modifica. El entrenamiento usa las cuatro RSSI y las zonas positivas presentes en los vectores completos, sin restricciones por dataset ni evaluación automática. KNN guarda la normalización junto al clasificador si se habilita. Una tarea por vez, máximo 100 MB de CSV y 15 minutos por entrenamiento.
+
+## API de mapas de calor
+
+`/api/mapas` requiere acceso desde la misma PC:
+
+- `POST /seleccionar` con `{tipo: "csv"|"joblib"}`: selector nativo, múltiple para CSV y simple para modelo; devuelve `{archivos: [...]}` y un arreglo vacío si se cancela.
+- `POST /` con `{entradas: string[], modelo, nombre, directorioSalida, ventana}`: valida rutas, inicia Python y devuelve HTTP 202 con `id`. Máximo 50 CSV, 100 MB por archivo y 200 MB de CSV en total. `directorioSalida` vacío usa `data/processed/mapas/`.
+- `GET /:id`: estado, progreso por archivos, configuración y resultados con URLs de imágenes y descargas.
+- `GET /:id/archivo/:indice/imagen`: PNG para la galería. Tipos `png`, `csv` y `json` permiten descargar imagen, predicciones y resumen.
+
+Ejecuta `python/mapas_calor_web.py` con Matplotlib en modo Agg y el Python configurado. Conserva solicitud, PID, estado y copias de los artefactos en `data/processed/mapas_web/<UUID>/`. Exporta PNG, CSV y JSON sin sobrescribir. Una tarea por vez y 15 minutos de plazo. Cada CSV se procesa y suaviza por separado; si falla uno, el estado informa el error y conserva los mapas anteriores del lote. Las etiquetas fuera de la cuadrícula 1–9 se rechazan antes de dibujar ese mapa.

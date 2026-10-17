@@ -36,9 +36,9 @@ def _clave_sesion(fila: dict[str, str]) -> tuple[int, int, int]:
     return (int(fila["sesion_gateway"]), int(fila["jugador_id"]), int(fila["sesion_jugador"]))
 
 
-def construir_muestras(filas: Iterable[dict[str, str]], zona: int, dataset: str = "", archivo_origen: str = "") -> tuple[list[dict[str, object]], dict[str, int]]:
+def construir_muestras(filas: Iterable[dict[str, str]], zona: int | None, dataset: str = "", archivo_origen: str = "") -> tuple[list[dict[str, object]], dict[str, int]]:
     """Agrupa RSSI por secuencia en una zona explícita, sin recortes temporales."""
-    if not isinstance(zona, int) or isinstance(zona, bool) or zona < 1:
+    if zona is not None and (not isinstance(zona, int) or isinstance(zona, bool) or zona < 1):
         raise ValueError("zona debe ser un entero positivo")
     filas_parseadas: list[tuple[datetime, dict[str, str]]] = []
     for numero, fila in enumerate(filas, start=2):

@@ -54,11 +54,12 @@ def generar_mapa(ruta: Path, conteos: Counter[int], total: int, titulo: str = "M
     for zona, (columna, fila) in COORDENADAS_ZONA.items():
         matriz[fila, columna] = conteos[zona]
     figura, eje = plt.subplots(figsize=(7, 4.5), constrained_layout=True)
-    imagen = eje.imshow(matriz, cmap="YlOrRd")
+    imagen = eje.imshow(matriz, cmap="YlOrRd", vmin=0, vmax=max(1, float(matriz.max())))
     for zona, (columna, fila) in COORDENADAS_ZONA.items():
         conteo = conteos[zona]
         porcentaje = 0.0 if total == 0 else 100.0 * conteo / total
-        eje.text(columna, fila, f"Zona {zona}\n{conteo} ({porcentaje:.1f}%)", ha="center", va="center")
+        eje.text(columna, fila, f"Zona {zona}\n{conteo} ({porcentaje:.1f}%)", ha="center", va="center",
+                 color="white" if conteo > 0 and conteo >= 0.65 * matriz.max() else "#0f1c2d")
     eje.set_title(titulo)
     eje.set_xticks(range(3), ["Oeste", "Centro", "Este"])
     eje.set_yticks(range(3), ["Norte", "Centro", "Sur"])

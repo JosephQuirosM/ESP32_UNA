@@ -1,4 +1,6 @@
 import express from "express";
+import { rutasMapas } from "./mapas.js";
+import { rutasEntrenamiento } from "./entrenamiento.js";
 import { rutasPreparacion } from "./preparacion.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -9,6 +11,8 @@ import type { DescubridorGateway } from "./gateway.js";
 export function crearApp(gestor: GestorLecturas, gateway?: DescubridorGateway) {
   const app = express();
   app.disable("x-powered-by");
+  app.use("/api/mapas", rutasMapas(gestor.configuracion));
+  app.use("/api/entrenamiento", rutasEntrenamiento(gestor.configuracion));
   app.use("/api/preparacion", rutasPreparacion(gestor.configuracion));
   app.use(express.json({ limit: "16kb" }));
   app.get("/api/estado", (_peticion, respuesta) => {

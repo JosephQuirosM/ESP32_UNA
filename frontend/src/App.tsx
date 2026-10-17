@@ -11,7 +11,6 @@ import {
   Grid3X3,
   Info,
   Layers,
-  LockKeyhole,
   Menu,
   Radio,
   Settings2,
@@ -23,14 +22,18 @@ import {
 import Lecturas from "./Lecturas";
 import Datasets from "./Datasets";
 import PreparacionDatos from "./PreparacionDatos";
+import EntrenamientoModelos from "./EntrenamientoModelos";
+import MapasCalor from "./MapasCalor";
 import { useServidor } from "./useServidor";
 
-type Pagina = "inicio" | "captura" | "gateway" | "datasets" | "preparacion" | "ayuda";
+type Pagina = "inicio" | "captura" | "gateway" | "datasets" | "preparacion" | "entrenamiento" | "mapas" | "ayuda";
 const NAVEGACION: { pagina: Pagina; titulo: string; icono: typeof Grid3X3 }[] =
   [
     { pagina: "inicio", titulo: "Inicio", icono: Layers },
     { pagina: "captura", titulo: "Recolección", icono: Grid3X3 },
     { pagina: "preparacion", titulo: "Preparación", icono: Filter },
+    { pagina: "entrenamiento", titulo: "Entrenamiento", icono: Activity },
+    { pagina: "mapas", titulo: "Mapas", icono: Thermometer },
     { pagina: "gateway", titulo: "Gateway", icono: Radio },
     { pagina: "datasets", titulo: "Datasets", icono: Database },
     { pagina: "ayuda", titulo: "Ayuda", icono: CircleHelp },
@@ -48,7 +51,7 @@ const MODULOS = [
     titulo: "Entrenamiento de Modelos",
     texto:
       "Generación de clasificadores de posición usando los datasets recolectados.",
-    detalle: "Algoritmos previstos:",
+    detalle: "Algoritmos disponibles:",
     etiquetas: ["k-NN Weighted", "Random Forest"],
     icono: Activity,
   },
@@ -56,8 +59,8 @@ const MODULOS = [
     titulo: "Mapas de Calor",
     texto:
       "Visualización 2D de cobertura de señal RSSI y estimación de ubicación sobre planos.",
-    detalle: "Visualización prevista:",
-    etiquetas: ["Mapa 2D", "Heatmap Canvas"],
+    detalle: "Visualización disponible:",
+    etiquetas: ["Mapas PNG", "Suavizado configurable"],
     icono: Thermometer,
   },
 ];
@@ -231,15 +234,6 @@ export default function App() {
                 <ChevronRight size={16} />
               </button>
             ))}
-            <div className="menu-futuros">
-              {MODULOS.filter((modulo) => modulo.icono !== Filter).map(({ titulo, icono: Icono }) => (
-                <div key={titulo}>
-                  <Icono size={19} />
-                  <span>{titulo}</span>
-                  <LockKeyhole size={15} />
-                </div>
-              ))}
-            </div>
             <div className="menu-nota">
               <Info size={18} />
               <span>
@@ -318,12 +312,11 @@ export default function App() {
                 </article>
                 {MODULOS.map(
                   ({ titulo, texto, detalle, etiquetas, icono: Icono }) => (
-                    <article className={`modulo ${Icono === Filter ? "modulo-activo" : ""}`} key={titulo}>
+                    <article className="modulo modulo-activo" key={titulo}>
                       <div className="fila">
                         <span className="icono-modulo">
                           <Icono />
                         </span>
-                        <span className="badge">{Icono === Filter ? "DISPONIBLE" : "PRÓXIMAMENTE"}</span>
                       </div>
                       <h3>{titulo}</h3>
                       <p>{texto}</p>
@@ -335,9 +328,9 @@ export default function App() {
                           ))}
                         </div>
                       </div>
-                      <button className={`boton ${Icono === Filter ? "primario" : ""}`} disabled={Icono !== Filter} onClick={() => navegar("preparacion")}>
-                        {Icono === Filter ? <ArrowRight size={18} /> : <LockKeyhole size={16} />}
-                        {Icono === Filter ? "Preparar datos" : "En desarrollo"}
+                      <button className="boton primario" onClick={() => navegar(Icono === Thermometer ? "mapas" : Icono === Activity ? "entrenamiento" : "preparacion")}>
+                        <ArrowRight size={18} />
+                        {Icono === Filter ? "Preparar datos" : Icono === Activity ? "Entrenar modelo" : "Generar mapas"}
                       </button>
                     </article>
                   ),
@@ -404,7 +397,11 @@ export default function App() {
             <div className="encabezado-pagina">
               <p className="etiqueta">PANEL DE CONTROL · ESP32</p>
               <h1>
-                {pagina === "preparacion"
+                {pagina === "mapas"
+                  ? "Mapas de Calor"
+                  : pagina === "entrenamiento"
+                  ? "Entrenamiento de Modelos"
+                  : pagina === "preparacion"
                   ? "Preparación y Etiquetado de Datasets"
                   : pagina === "captura"
                   ? "Recolección de Datos"
@@ -415,7 +412,11 @@ export default function App() {
                       : "Guía de Conexión"}
               </h1>
               <p>
-                {pagina === "preparacion"
+                {pagina === "mapas"
+                  ? "Selecciona tus lecturas, el modelo entrenado y genera mapas de ubicación por zona."
+                  : pagina === "entrenamiento"
+                  ? "Selecciona tu CSV etiquetado y configura KNN o Random Forest para generar el modelo."
+                  : pagina === "preparacion"
                   ? "Carga los CSV de tus zonas y genera un único archivo etiquetado para entrenar modelos."
                   : pagina === "captura"
                   ? "Elige cómo quieres recorrer tu sesión de medición."
@@ -550,6 +551,12 @@ export default function App() {
             )}
           </>
         )}
+        <div hidden={pagina !== "mapas"}>
+          <MapasCalor />
+        </div>
+        <div hidden={pagina !== "entrenamiento"}>
+          <EntrenamientoModelos />
+        </div>
         <div hidden={pagina !== "preparacion"}>
           <PreparacionDatos />
         </div>

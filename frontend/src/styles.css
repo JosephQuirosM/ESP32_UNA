@@ -1502,3 +1502,71 @@ a.boton {
 .preparacion-destino small { color: var(--muted); }
 .preparacion-guardado { overflow-wrap: anywhere; }
 @media (max-width: 420px) { .preparacion-elegir-ruta { flex-wrap: wrap; } }
+
+.entrenamiento-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(310px, 1fr); gap: 24px; align-items: start; }
+.entrenamiento-columna { display: grid; gap: 22px; min-width: 0; }
+.entrenamiento-seccion { display: grid; gap: 18px; padding: 24px; min-width: 0; }
+.entrenamiento-seccion h2 { display: flex; align-items: center; gap: 10px; font-size: 18px; }
+.entrenamiento-seccion h2 > svg { color: var(--primary); flex-shrink: 0; }
+.entrenamiento-seccion > p { font-size: 13px; color: var(--muted); }
+.entrenamiento-campo { display: grid; gap: 7px; font-weight: 600; font-size: 13px; min-width: 0; }
+.entrenamiento-campo input, .entrenamiento-campo select { width: 100%; min-width: 0; padding: 11px 12px; background: white; border: 1px solid var(--border); border-radius: 8px; color: #0f1c2d; font: inherit; font-weight: 400; }
+.entrenamiento-campo small, .entrenamiento-check small { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
+.entrenamiento-acciones { display: flex; flex-wrap: wrap; gap: 10px; }
+.entrenamiento-resumen { display: grid; gap: 14px; padding: 16px; border: 1px solid #d2e9df; border-radius: 10px; background: #f5fffa; }
+.entrenamiento-resumen h3, .entrenamiento-resultado h3 { display: flex; align-items: center; gap: 8px; color: #00734c; font-size: 15px; }
+.entrenamiento-cifras { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.entrenamiento-cifras div { display: grid; gap: 4px; }
+.entrenamiento-cifras strong { font-size: 25px; font-variant-numeric: tabular-nums; }
+.entrenamiento-cifras span { color: var(--muted); font-size: 11px; }
+.entrenamiento-algoritmos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.entrenamiento-algoritmos button { display: grid; gap: 6px; text-align: left; padding: 18px; background: white; border: 1px solid var(--border); border-radius: 10px; color: #0f1c2d; }
+.entrenamiento-algoritmos button[aria-pressed="true"] { background: var(--soft); border: 2px solid var(--primary); padding: 17px; }
+.entrenamiento-algoritmos strong { font-size: 17px; }
+.entrenamiento-algoritmos span { color: var(--muted); font-size: 12px; }
+.entrenamiento-campos { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+.entrenamiento-check { display: flex; align-items: flex-start; gap: 8px; padding-top: 28px; font-size: 13px; }
+.entrenamiento-check input { width: 17px; height: 17px; accent-color: var(--primary); flex-shrink: 0; }
+.entrenamiento-resultado { display: grid; gap: 14px; padding-top: 18px; border-top: 1px solid var(--border); font-size: 12px; overflow-wrap: anywhere; }
+.entrenamiento-resultado a { color: var(--primary); }
+.entrenamiento-resultado a.primario { color: white; }
+.entrenamiento-salida > .boton { min-height: 48px; }
+.entrenamiento-seccion .entrenamiento-error { color: #ba1a1a; background: #fff0ef; border-radius: 8px; padding: 12px; font-size: 13px; overflow-wrap: anywhere; }
+.entrenamiento select:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+@media (max-width: 980px) { .entrenamiento-layout { grid-template-columns: 1fr; } }
+@media (max-width: 540px) { .entrenamiento-seccion { padding: 18px; } .entrenamiento-campos { grid-template-columns: 1fr; } .entrenamiento-check { padding-top: 0; } .entrenamiento-algoritmos button { padding: 12px; } .entrenamiento-algoritmos button[aria-pressed="true"] { padding: 11px; } }
+
+.mapas-ruta-manual { display: flex; gap: 10px; align-items: end; }
+.mapas-ruta-manual label { flex: 1; }
+.mapas-ruta-manual > .boton { flex-shrink: 0; }
+.mapas-limpiar { color: #ba1a1a; background: #ffdad6; border-color: transparent; }
+.mapas-cantidad { color: #00734c; font-weight: 600; }
+.mapas-archivos { max-height: 300px; overflow-y: auto; overscroll-behavior: contain; display: grid; gap: 10px; padding: 4px; }
+.mapas-archivo { display: flex; gap: 12px; align-items: center; background: #f5fffa; border: 1px solid #d2e9df; border-radius: 10px; padding: 12px; min-width: 0; }
+.mapas-archivo > strong { color: #00734c; font-size: 26px; letter-spacing: -1px; }
+.mapas-archivo > div { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.mapas-archivo span { font-weight: 600; overflow-wrap: anywhere; font-size: 13px; }
+.mapas-archivo small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.mapas-vacio { display: grid; justify-items: center; gap: 12px; padding: 24px; text-align: center; color: var(--muted); border-radius: 10px; background: var(--soft); }
+.mapas-vacio svg { color: var(--primary); }
+.mapas-seleccionar-modelo { justify-self: start; }
+.mapas-progreso { display: grid; gap: 10px; font-size: 13px; }
+.mapas-progreso progress { width: 100%; accent-color: var(--primary); }
+.mapas-exito { display: flex; gap: 8px; align-items: center; color: #00734c !important; }
+.mapas-resultados { margin-top: 30px; display: grid; gap: 16px; }
+.mapas-resultados > h2 { display: flex; align-items: center; gap: 9px; font-size: 22px; }
+.mapas-resultados > p { color: var(--muted); font-size: 13px; }
+.mapas-galeria { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.mapas-imagen { display: grid; align-content: start; gap: 12px; padding: 20px; min-width: 0; }
+.mapas-imagen h3 { font-size: 16px; overflow-wrap: anywhere; }
+.mapas-imagen > p { font-size: 12px; color: var(--muted); }
+.mapas-imagen img { display: block; width: 100%; height: auto; border-radius: 8px; }
+.mapas-ruta-resultado { overflow-wrap: anywhere; }
+.mapas-imagen .entrenamiento-acciones { align-items: center; font-size: 12px; }
+.mapas-imagen .entrenamiento-acciones > a:last-child { color: var(--primary); }
+@media (max-width: 800px) { .mapas-galeria { grid-template-columns: 1fr; } }
+@media (max-width: 540px) { .mapas-ruta-manual { flex-wrap: wrap; } .mapas-ruta-manual label { flex-basis: 100%; } .mapas-archivo { flex-wrap: wrap; } .mapas-archivo > div { min-width: 100px; } .mapas-imagen { padding: 14px; } }
+
+/* La navegación conserva todos los módulos sin desbordar la ventana. */
+.cabecera nav { min-width: 0; overflow-x: auto; scrollbar-width: thin; }
+.cabecera nav button { flex-shrink: 0; }
