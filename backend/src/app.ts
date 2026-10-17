@@ -1,4 +1,5 @@
 import express from "express";
+import { rutasPreparacion } from "./preparacion.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ErrorPeticion, GestorLecturas } from "./gestor.js";
@@ -8,6 +9,7 @@ import type { DescubridorGateway } from "./gateway.js";
 export function crearApp(gestor: GestorLecturas, gateway?: DescubridorGateway) {
   const app = express();
   app.disable("x-powered-by");
+  app.use("/api/preparacion", rutasPreparacion(gestor.configuracion));
   app.use(express.json({ limit: "16kb" }));
   app.get("/api/estado", (_peticion, respuesta) => {
     const actual = gestor.actual();

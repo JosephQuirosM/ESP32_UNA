@@ -90,3 +90,13 @@ python3 -m unittest discover -s tests -v
 Las pruebas del backend ejecutan el receptor real con lotes HTTP simulados y directorios temporales: prueban cierre por tiempo y parada, conservación de registros, idempotencia, descargas, conflictos, errores y recuperación tras interrumpir el backend. La conectividad física debe verificarse con las ESP32 encendidas; los datos simulados no equivalen a una prueba de radio.
 
 El pipeline KNN conserva su protocolo anterior de etiquetado temporal. Los CSV por zona, duraciones configurables y cuadrículas distintas necesitan una adaptación posterior del preprocesamiento antes de entrenar.
+
+## API de preparación de datos
+
+`POST /api/preparacion` recibe JSON `{archivos: [{nombre, contenido, zona}]}` con CSV UTF-8 (máximo 32 MB de cuerpo). Ejecuta `python/preparar_datos_web.py` usando el Python configurado para el receptor. Valida etiquetas explícitas y columnas RSSI, procesa cada archivo por separado y guarda `dataset_etiquetado.csv` y su resumen JSON en `data/processed/preparaciones/<UUID>/`. No inicia el entrenamiento ni modifica capturas.
+
+La respuesta incluye los conteos, zonas, procedencia y enlaces `GET /api/preparacion/:id/csv` y `GET /api/preparacion/:id/resumen`. Rechaza CSV vacíos, columnas o MAC desconocidas, etiquetas inválidas y nombres duplicados. Si falla cualquier archivo, no publica un resultado parcial.
+
+La preparación acepta `directorioSalida` opcional (carpeta existente, absoluta o relativa al proyecto). Exporta allí el CSV y el JSON sin sobrescribir archivos: usa sufijos `_2`, `_3`, etc. La respuesta incluye `rutaSalida`. Mantiene una copia interna para las descargas. `POST /api/preparacion/seleccionar-carpeta` con `{ruta}` abre el selector nativo en el escritorio de la PC; sin ruta comienza en el proyecto y al cancelar devuelve `ruta: null`. En Linux usa Zenity y necesita una sesión gráfica activa. La exploración y exportación a rutas elegidas requieren una conexión desde la misma PC.
+
+El campo `dataset` es opcional por compatibilidad con entradas antiguas; su ausencia no impide preparar ni entrenar y la web ya no lo envía. No se deduce un dataset por defecto a partir de nombres de archivo.

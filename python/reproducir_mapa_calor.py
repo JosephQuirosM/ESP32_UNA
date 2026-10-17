@@ -49,7 +49,7 @@ def escribir_predicciones(ruta: Path, filas: list[dict[str, str]], predichas: li
             })
 
 
-def generar_mapa(ruta: Path, conteos: Counter[int], total: int) -> None:
+def generar_mapa(ruta: Path, conteos: Counter[int], total: int, titulo: str = "Mapa de calor: predicciones suavizadas") -> None:
     matriz = np.zeros((3, 3), dtype=float)
     for zona, (columna, fila) in COORDENADAS_ZONA.items():
         matriz[fila, columna] = conteos[zona]
@@ -59,7 +59,7 @@ def generar_mapa(ruta: Path, conteos: Counter[int], total: int) -> None:
         conteo = conteos[zona]
         porcentaje = 0.0 if total == 0 else 100.0 * conteo / total
         eje.text(columna, fila, f"Zona {zona}\n{conteo} ({porcentaje:.1f}%)", ha="center", va="center")
-    eje.set_title("Mapa de calor MVP: predicciones KNN suavizadas")
+    eje.set_title(titulo)
     eje.set_xticks(range(3), ["Oeste", "Centro", "Este"])
     eje.set_yticks(range(3), ["Norte", "Centro", "Sur"])
     figura.colorbar(imagen, ax=eje, label="Vectores predichos")

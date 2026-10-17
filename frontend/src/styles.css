@@ -1441,3 +1441,64 @@ footer > span:first-child {
 a.boton {
   text-decoration: none;
 }
+
+/* Preparación de datos: referencia Stitch, con cola real de archivos. */
+.preparacion-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
+.preparacion-entrada { min-width: 0; display: grid; gap: 22px; }
+.preparacion-drop { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 40px 24px 28px; border: 2px dashed transparent; transition: background .15s, border-color .15s; min-height: 310px; }
+.preparacion-drop.arrastrando { background: #eff4ff; border-color: #1a56db; }
+.preparacion-icono { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; background: #eff4ff; color: #003fb1; border-radius: 18px; margin-bottom: 12px; flex-shrink: 0; }
+.preparacion-icono.pequeno { width: 36px; height: 36px; border-radius: 9px; margin: 0; }
+.preparacion-drop h2 { font-size: 17px; margin: 0 0 5px; }
+.preparacion-drop > p { color: var(--muted); }
+.preparacion-formato { display: inline-flex; align-items: center; gap: 6px; border-radius: 30px; background: #eff4ff; padding: 4px 14px; margin: 14px 0; font-size: 12px; }
+.preparacion-formato strong { color: #003fb1; }
+.preparacion-drop.con-archivos { padding-top: 20px; }
+.preparacion-drop.con-archivos .preparacion-cantidad { margin-top: 0; }
+.preparacion-drop.con-archivos .preparacion-acciones { margin-top: 20px; }
+.preparacion-acciones { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.preparacion-limpiar { background: #ffdad6; color: #ba1a1a; border-color: transparent; }
+.preparacion-limpiar:hover:not(:disabled) { background: #ffc6c0; }
+.preparacion-cantidad { display: flex; align-items: center; gap: 6px; color: #006c49; margin: 22px 0 12px; font-weight: 600; }
+.preparacion-scroll { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 12px; width: 100%; max-height: 390px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 4px 8px 8px 4px; text-align: left; }
+.preparacion-archivo { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 16px 12px 8px; background: #f8fffb; border: 1px solid #d2e9df; border-radius: 12px; gap: 5px; }
+.preparacion-csv { color: #00734c; font-size: 34px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.3; }
+.preparacion-nombre { width: 100%; overflow-wrap: anywhere; font-size: 12px; font-weight: 600; text-align: center; }
+.preparacion-archivo small { color: var(--muted); font-size: 11px; }
+.preparacion-archivo label { width: 100%; font-size: 11px; color: #434654; display: grid; gap: 3px; }
+.preparacion-archivo input { width: 100%; min-width: 0; border: 1px solid #cbd5e1; border-radius: 6px; padding: 5px 8px; background: white; color: #0f1c2d; }
+.preparacion-eliminar { background: none; border: 0; color: #ba1a1a; padding: 8px 12px; min-height: 36px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.preparacion-eliminar:hover:not(:disabled) { background: #ffdad6; border-radius: 6px; }
+.preparacion-aviso { display: flex; align-items: flex-start; gap: 12px; background: #eff4ff; border: 1px solid #dde5f5; padding: 18px; border-radius: 12px; }
+.preparacion-aviso svg { color: #895600; flex-shrink: 0; }
+.preparacion-aviso code { color: #003fb1; font-size: 12px; overflow-wrap: anywhere; }
+.preparacion-salida { display: grid; gap: 20px; padding: 24px; min-width: 0; }
+.preparacion-titulo { display: flex; gap: 10px; align-items: center; }
+.preparacion-titulo h2 { font-size: 16px; }
+.preparacion-titulo p, .preparacion-salida > p { font-size: 12px; color: var(--muted); }
+.preparacion-previa { padding: 12px; background: #eff4ff; border-radius: 9px; display: grid; gap: 8px; font-size: 12px; min-width: 0; }
+.preparacion-previa strong { color: #003fb1; display: flex; gap: 6px; align-items: center; background: white; padding: 8px; border-radius: 5px; overflow-wrap: anywhere; }
+.preparacion-destino code { display: block; margin-top: 6px; overflow-wrap: anywhere; }
+.preparacion-salida > .boton { width: 100%; min-height: 48px; }
+.preparacion-salida .preparacion-pendiente { color: #895600; }
+.preparacion-salida .preparacion-error { color: #ba1a1a; padding: 12px; background: #fff0ef; border-radius: 8px; overflow-wrap: anywhere; }
+.preparacion-resultado { display: grid; gap: 14px; border-top: 1px solid var(--border); padding-top: 18px; font-size: 12px; }
+.preparacion-resultado h3 { display: flex; align-items: center; gap: 7px; color: #006c49; font-size: 16px; }
+.preparacion-resultado dl { margin: 0; display: grid; gap: 7px; }
+.preparacion-resultado dl div { display: flex; justify-content: space-between; gap: 8px; }
+.preparacion-resultado dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.preparacion-resultado a { color: #003fb1; }
+.preparacion-resultado a.primario { color: white; }
+.preparacion-girando { animation: preparacion-giro 1s linear infinite; }
+@keyframes preparacion-giro { to { transform: rotate(360deg); } }
+@media (max-width: 900px) { .preparacion-layout { grid-template-columns: 1fr; } }
+@media (max-width: 540px) { .preparacion-drop { padding: 24px 12px; } .preparacion-acciones { width: 100%; } .preparacion-acciones .boton { width: 100%; } .preparacion-scroll { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; } .preparacion-salida { padding: 18px; } }
+@media (prefers-reduced-motion: reduce) { .preparacion-girando { animation: none; } }
+
+.preparacion-destino { display: grid; gap: 8px; font-size: 12px; }
+.preparacion-elegir-ruta { display: flex; gap: 8px; align-items: stretch; }
+.preparacion-elegir-ruta input { min-width: 0; width: 100%; border: 1px solid var(--border); background: var(--soft); border-radius: 7px; padding: 8px; font-size: 12px; }
+.preparacion-elegir-ruta .boton { flex-shrink: 0; padding: 8px 10px; }
+.preparacion-destino small { color: var(--muted); }
+.preparacion-guardado { overflow-wrap: anywhere; }
+@media (max-width: 420px) { .preparacion-elegir-ruta { flex-wrap: wrap; } }

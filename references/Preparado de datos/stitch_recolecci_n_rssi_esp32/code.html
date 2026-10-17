@@ -1,0 +1,287 @@
+<!DOCTYPE html><html lang="es" style="width: 1280px; height: 1295px; overflow: hidden; position: relative;"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><meta content="web_standard" name="shell-type"><title>Mapa de Calor ESP32</title><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode:"class",theme:{extend:{colors:{"surface-dim":"#cddbf2","surface-container-low":"#eff4ff","tertiary-fixed-dim":"#ffb95f","error-container":"#ffdad6","surface-bright":"#f8f9ff","inverse-surface":"#243143","on-primary":"#ffffff","surface-container":"#e6eeff","outline-variant":"#c3c5d7","on-primary-container":"#d4dcff","on-surface-variant":"#434654","on-background":"#0f1c2d","surface":"#f8f9ff","on-secondary":"#ffffff","on-tertiary-fixed-variant":"#653e00","outline":"#737686","error":"#ba1a1a","on-secondary-container":"#00714c","on-secondary-fixed-variant":"#005236","tertiary-fixed":"#ffddb8","on-secondary-fixed":"#002113","inverse-on-surface":"#eaf1ff","on-primary-fixed":"#00174d","tertiary":"#694100","on-primary-fixed-variant":"#003dab","inverse-primary":"#b5c4ff","primary-fixed-dim":"#b5c4ff","surface-container-lowest":"#ffffff","surface-tint":"#1353d8","surface-container-high":"#dce9ff","on-tertiary-container":"#ffd6a8","secondary-container":"#7ef6be","primary-fixed":"#dbe1ff","primary-container":"#1a56db","background":"#f8f9ff","on-error":"#ffffff","surface-container-highest":"#d6e3fb","secondary-fixed-dim":"#63dca6","on-error-container":"#93000a","tertiary-container":"#895600","on-tertiary":"#ffffff","secondary":"#006c49","on-surface":"#0f1c2d","primary":"#003fb1","surface-variant":"#d6e3fb","on-tertiary-fixed":"#2a1700","secondary-fixed":"#81f9c1"},borderRadius:{DEFAULT:"0.25rem",lg:"0.5rem",xl:"0.75rem",full:"9999px"},spacing:{"space-md":"1rem","margin-desktop":"2rem",gutter:"1rem","space-sm":"0.5rem","gutter-desktop":"1.5rem","space-xl":"2rem","space-xs":"0.25rem",margin:"1rem","space-lg":"1.5rem"},fontFamily:{"display-timer":["Inter"],"body-md":["Inter"],"label-md":["Inter"],"headline-lg-mobile":["Inter"],"headline-lg":["Inter"],"display-timer-mobile":["Inter"],"code-filename":["Inter"],"headline-md":["Inter"],"label-lg":["Inter"],"title-sm":["Inter"],"body-lg":["Inter"]},fontSize:{"display-timer":["56px",{lineHeight:"64px",letterSpacing:"-0.03em",fontWeight:"700"}],"body-md":["14px",{lineHeight:"20px",fontWeight:"400"}],"label-md":["12px",{lineHeight:"16px",letterSpacing:"0.02em",fontWeight:"600"}],"headline-lg-mobile":["24px",{lineHeight:"32px",letterSpacing:"-0.01em",fontWeight:"700"}],"headline-lg":["32px",{lineHeight:"40px",letterSpacing:"-0.02em",fontWeight:"700"}],"display-timer-mobile":["40px",{lineHeight:"48px",letterSpacing:"-0.02em",fontWeight:"700"}],"code-filename":["13px",{lineHeight:"18px",fontWeight:"500"}],"headline-md":["20px",{lineHeight:"28px",letterSpacing:"-0.01em",fontWeight:"600"}],"label-lg":["14px",{lineHeight:"20px",letterSpacing:"0.01em",fontWeight:"600"}],"title-sm":["16px",{lineHeight:"24px",fontWeight:"600"}],"body-lg":["16px",{lineHeight:"24px",fontWeight:"400"}]}}}};</script></head><body class="bg-surface font-body-md text-on-surface antialiased min-h-screen flex flex-col"><div class="fixed inset-0 z-50 bg-on-background/40 backdrop-blur-sm transition-opacity duration-300 hidden pointer-events-none" id="sideDrawerBackdrop" onclick="const b = document.getElementById('sideDrawerBackdrop'); const p = document.getElementById('sideDrawerPanel'); p.classList.add('-translate-x-full'); p.style.transform = 'translateX(-100%)'; setTimeout(() =&gt; { b.style.display = 'none'; b.classList.add('hidden', 'pointer-events-none'); p.style.display = 'none'; }, 300);" style="display: none;"></div><aside aria-label="Panel lateral de módulos" class="fixed top-0 left-0 bottom-0 z-50 w-80 max-w-[85vw] bg-surface-container-lowest shadow-2xl flex flex-col justify-between transition-transform duration-300 ease-in-out -translate-x-full border-r border-outline-variant/30" id="sideDrawerPanel" style="transform: translateX(-100%); display: none;"><div class="flex flex-col h-full overflow-y-auto"><div class="p-space-md border-b border-outline-variant/20 flex items-center justify-between bg-surface-container-low"><div class="flex items-center gap-space-sm"><div class="w-10 h-10 rounded-xl bg-primary-container text-on-primary flex items-center justify-center shadow-sm"><span class="material-symbols-outlined text-[22px]">grid_view</span></div><div><h3 class="font-title-sm text-title-sm text-on-surface leading-tight">Módulos del Sistema</h3><span class="font-label-md text-label-md text-on-surface-variant">Plataforma ESP32 RSSI</span></div></div><button aria-label="Cerrar panel" class="w-8 h-8 rounded-lg flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors" id="closeDrawerBtn" onclick="const b = document.getElementById('sideDrawerBackdrop'); const p = document.getElementById('sideDrawerPanel'); p.classList.add('-translate-x-full'); p.style.transform = 'translateX(-100%)'; setTimeout(() =&gt; { b.style.display = 'none'; b.classList.add('hidden', 'pointer-events-none'); p.style.display = 'none'; }, 300);"><span class="material-symbols-outlined text-[20px]">close</span></button></div><div class="p-space-md flex flex-col gap-space-sm"><span class="font-label-md text-label-md text-on-surface-variant uppercase font-semibold tracking-wider px-space-xs">Módulos de Trabajo</span><div class="flex flex-col gap-space-xs"><a class="p-space-sm rounded-xl bg-primary-container text-on-primary flex items-center justify-between shadow-sm transition-all" data-path="captura-cuadricula" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[22px]">grid_guides</span><div class="flex flex-col text-left"><span class="font-label-lg text-label-lg font-semibold leading-tight">Recolección de Señal</span><span class="text-[11px] text-on-primary-container opacity-90">Matriz 3×3 activa</span></div></div><span class="px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-semibold text-[10px] uppercase">Activo</span></a><div class="p-space-sm rounded-xl bg-surface-container-low/60 text-on-surface-variant flex items-center justify-between border border-outline-variant/20 opacity-80"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[22px] text-outline">filter_alt</span><div class="flex flex-col text-left"><span class="font-label-lg text-label-lg font-medium text-on-surface leading-tight">Preparación de Datos</span><span class="text-[11px] text-on-surface-variant">Kalman &amp; Outliers IQR</span></div></div><span class="px-2 py-0.5 rounded bg-surface-container text-outline text-[10px] font-semibold uppercase">Próx.</span></div><div class="p-space-sm rounded-xl bg-surface-container-low/60 text-on-surface-variant flex items-center justify-between border border-outline-variant/20 opacity-80"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[22px] text-outline">model_training</span><div class="flex flex-col text-left"><span class="font-label-lg text-label-lg font-medium text-on-surface leading-tight">Entrenamiento Modelos</span><span class="text-[11px] text-on-surface-variant">KNN &amp; Random Forest</span></div></div><span class="px-2 py-0.5 rounded bg-surface-container text-outline text-[10px] font-semibold uppercase">Próx.</span></div><div class="p-space-sm rounded-xl bg-surface-container-low/60 text-on-surface-variant flex items-center justify-between border border-outline-variant/20 opacity-80"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[22px] text-outline">heat_pump</span><div class="flex flex-col text-left"><span class="font-label-lg text-label-lg font-medium text-on-surface leading-tight">Mapas de Calor</span><span class="text-[11px] text-on-surface-variant">Interpolación Kriging 2D</span></div></div><span class="px-2 py-0.5 rounded bg-surface-container text-outline text-[10px] font-semibold uppercase">Próx.</span></div></div></div><div class="px-space-md py-space-sm flex flex-col gap-space-sm"><span class="font-label-md text-label-md text-on-surface-variant uppercase font-semibold tracking-wider px-space-xs">Accesos Rápidos</span><div class="flex flex-col gap-1"><a class="flex items-center gap-space-sm px-space-sm py-space-xs rounded-lg text-on-surface hover:bg-surface-container transition-colors font-label-lg text-label-lg" data-path="registros-csv" href="#"><span class="material-symbols-outlined text-primary text-[20px]">table_chart</span><span class="">Datasets Recolectados</span></a><a class="flex items-center gap-space-sm px-space-sm py-space-xs rounded-lg text-on-surface hover:bg-surface-container transition-colors font-label-lg text-label-lg" data-path="configuracion-gateway" href="#"><span class="material-symbols-outlined text-primary text-[20px]">settings_input_antenna</span><span class="">Ajustes del Gateway</span></a><a class="flex items-center gap-space-sm px-space-sm py-space-xs rounded-lg text-on-surface hover:bg-surface-container transition-colors font-label-lg text-label-lg" data-path="guia-conexion" href="#"><span class="material-symbols-outlined text-primary text-[20px]">help_center</span><span class="">Guía de Conexión</span></a></div></div><div class="mt-auto p-space-md bg-surface-container-low border-t border-outline-variant/20 flex flex-col gap-space-xs"><div class="flex items-center justify-between"><span class="font-label-md text-label-md text-on-surface-variant">Estado del Sistema</span><span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span></div><div class="flex flex-col gap-1 bg-surface-container-lowest p-space-sm rounded-lg border border-outline-variant/20"><div class="flex items-center justify-between text-[11px]"><span class="text-on-surface-variant">Python 8000:</span><span class="font-code-filename text-secondary font-semibold">En línea</span></div><div class="flex items-center justify-between text-[11px]"><span class="text-on-surface-variant">Gateway ESP32:</span><span class="font-code-filename text-primary font-semibold">192.168.1.45</span></div></div></div></div></aside><header class="fixed top-0 w-full z-50 bg-surface/90 backdrop-blur-xl shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-16 w-full px-space-md lg:px-margin-desktop flex items-center justify-between gap-space-sm"><div class="flex items-center gap-space-md"><button aria-label="Abrir módulos" class="w-10 h-10 rounded-lg flex items-center justify-center text-on-surface hover:bg-surface-container-high transition-colors focus:outline-none" id="openDrawerBtn" onclick="const b = document.getElementById('sideDrawerBackdrop'); const p = document.getElementById('sideDrawerPanel'); b.style.display = 'block'; b.classList.remove('hidden', 'pointer-events-none'); p.style.display = 'flex'; setTimeout(() =&gt; { p.classList.remove('-translate-x-full'); p.style.transform = 'translateX(0)'; }, 10);" title="Abrir módulos"><span class="material-symbols-outlined text-[24px]">menu</span></button><img alt="Logo Mapa de Calor ESP32" class="h-8 w-auto object-contain" src="https://lh3.googleusercontent.com/aida/AEtjO1UD4DdCLI5rp39BvSPeBP_QWIruunKGw_Len9LEvABBJwJOHlWEn2rIPGjNzS4NJ3hT5WZcgjmiW_egefZMwMahlgp-vwkVqjE-ImfXeiLFe_sCddaiPiVRiteXlGVuetVoL_4z9uFjDPhUfgjEm9u_rECRjA_OEA2wtVk2DbEa2BgZKaRWcvMKHo17Cm6PMLm67sM5m_0zBbZw91ujCaplt7El1f3sw77DIjtdKB6qv2ioWiQU3HxgDQ"><div class="flex flex-col"><span class="font-title-sm text-title-sm text-on-surface leading-tight tracking-tight">Mapa de Calor ESP32</span><span class="font-label-md text-label-md text-on-surface-variant hidden sm:inline">Panel administrativo&nbsp;</span></div></div><nav class="flex items-center gap-space-xs lg:gap-space-sm ml-auto mr-space-sm" data-active-classes="bg-primary-container text-on-primary font-label-lg rounded-lg shadow-sm"><a class="px-space-sm lg:px-space-md py-space-xs rounded-lg font-label-lg text-label-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="inicio" href="#">Inicio</a><a class="px-space-sm lg:px-space-md py-space-xs rounded-lg font-label-lg text-label-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="captura-cuadricula" href="#">Recolección</a><a class="px-space-sm lg:px-space-md py-space-xs rounded-lg font-label-lg text-label-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="configuracion-gateway" href="#">Gateway</a><a class="px-space-sm lg:px-space-md py-space-xs rounded-lg font-label-lg text-label-lg bg-primary-container text-on-primary shadow-sm" data-path="registros-csv" href="#">Dataset</a><a class="px-space-sm lg:px-space-md py-space-xs rounded-lg font-label-lg text-label-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="guia-conexion" href="#">Ayuda</a></nav><div class="flex items-center gap-space-sm"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-16 bg-surface flex-1"><div class="flex flex-col w-full">
+<section class="w-full px-space-md lg:px-margin-desktop py-space-lg flex flex-col gap-space-lg">
+<!-- Breadcrumbs & Screen Header -->
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md pb-space-sm">
+<div class="flex flex-col gap-space-xs max-w-4xl">
+<nav aria-label="Migas de pan" class="flex items-center gap-2 text-on-surface-variant font-label-md text-label-md">
+<span class="hover:text-primary transition-colors cursor-pointer flex items-center gap-1">
+<span class="material-symbols-outlined text-[16px]">home</span>
+            Menú principal
+          </span>
+<span class="text-outline-variant font-light">/</span>
+<span class="hover:text-primary transition-colors cursor-pointer">Preparación de datos</span>
+
+
+</nav>
+<div class="flex items-center gap-space-sm mt-1">
+<div class="w-10 h-10 rounded-xl bg-primary-container text-on-primary flex items-center justify-center shadow-sm">
+<span class="material-symbols-outlined text-[24px]">filter_alt</span>
+</div>
+<div>
+<h1 class="font-headline-lg text-headline-lg-mobile lg:text-headline-lg text-on-surface tracking-tight">
+              Preparación y Etiquetado de Datasets
+            </h1>
+<p class="font-body-md text-body-md text-on-surface-variant mt-0.5 max-w-3xl">
+              Carga los archivos CSV capturados en la recolección por zonas. El servicio backend los procesará, filtrará ruido y generará un único archivo unificado y etiquetado para el entrenamiento de modelos (KNN / Random Forest).
+            </p>
+</div>
+</div>
+</div>
+<!-- Quick Status Metric Pills -->
+<div class="flex items-center gap-space-sm self-start lg:self-center">
+<div class="flex items-center gap-space-sm bg-surface-container-low px-space-md py-space-xs rounded-xl shadow-sm">
+<span class="flex h-3 w-3 relative">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-3 w-3 bg-secondary"></span>
+</span>
+<div class="flex flex-col">
+<span class="font-label-md text-label-md text-on-surface font-semibold">Servicio Python</span>
+<span class="font-code-filename text-code-filename text-secondary">Procesador Listo</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Main Workspace Split (8-col Telemetry / 4-col Config Layout) -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter-desktop items-start">
+<!-- Left / Central Column: Dropzone & File Queue (8 Columns) -->
+<div class="lg:col-span-8 flex flex-col gap-space-lg">
+<!-- Dropzone Container -->
+<div class="relative group bg-surface-container-lowest rounded-xl p-space-xl text-center shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer overflow-hidden" id="dropzoneContainer">
+<div class="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+<input accept=".csv" class="hidden" id="csvFileInput" multiple="" onchange="handleFileSelect(event)" type="file">
+<div class="relative z-10 flex flex-col items-center justify-center gap-space-sm py-space-md">
+<!-- Icon Badge -->
+<div class="w-16 h-16 rounded-2xl bg-surface-container-low text-primary flex items-center justify-center group-hover:scale-105 group-hover:bg-primary-container group-hover:text-on-primary transition-all duration-200 shadow-sm">
+<span class="material-symbols-outlined text-[36px]">cloud_upload</span>
+</div>
+<!-- Descriptive Text -->
+<div class="flex flex-col gap-1 max-w-md">
+<span class="font-title-sm text-title-sm text-on-surface font-semibold">
+                Arrastra y suelta aquí tus archivos CSV de recolección
+              </span>
+<p class="font-body-md text-body-md text-on-surface-variant">
+                o haz clic para examinar los datasets en tu dispositivo local
+              </p>
+</div>
+<!-- Accepted Format Hint -->
+<div class="inline-flex items-center gap-1.5 px-3 py-1 bg-surface-container-low rounded-full text-on-surface-variant font-label-md text-label-md mt-1">
+<span class="material-symbols-outlined text-[16px] text-primary">table_chart</span>
+<span class="">Archivos aceptados: <code class="font-code-filename font-semibold text-primary">.csv</code>&nbsp;<br></span>
+</div>
+<!-- Action Buttons Row -->
+<div class="flex flex-wrap items-center justify-center gap-space-sm mt-space-sm" onclick="event.stopPropagation();">
+<button class="px-space-md py-2.5 rounded-lg bg-surface-container-high hover:bg-surface-dim text-on-surface font-label-lg text-label-lg flex items-center gap-2 transition-colors shadow-sm" onclick="document.getElementById('csvFileInput').click();">
+<span class="material-symbols-outlined text-[18px]">folder_open</span>
+<span class="">Abrir gestor de archivos</span>
+</button>
+
+<button type="button" onclick="if(confirm('¿Deseas vaciar los archivos seleccionados?')){ const input = document.getElementById('csvFileInput'); if(input) input.value = ''; alert('Lista de archivos limpiada correctamente.'); }" class="px-space-md py-2.5 rounded-lg bg-error-container text-error hover:bg-error hover:text-on-error font-label-lg text-label-lg flex items-center gap-2 transition-colors shadow-sm"><span class="material-symbols-outlined text-[18px]">delete</span><span class="">Limpiar archivos cargados</span></button></div>
+</div>
+</div><div class="rounded-xl p-space-md flex items-start gap-3 border border-outline-variant/30 bg-surface-container-low shadow-sm"><span class="material-symbols-outlined text-[22px] text-tertiary shrink-0 mt-0.5">warning</span><div class="flex flex-col gap-0.5 text-left text-on-surface"><p class="font-body-md text-body-md leading-relaxed">Verifica que los archivos de recolección contengan en el nombre la zona a la que corresponden. Ejemplo: <code class="font-code-filename text-code-filename font-bold text-primary bg-surface-container-lowest px-1.5 py-0.5 rounded border border-outline-variant/30">dataset1_zona_1.csv</code></p></div></div>
+<!-- Files Loaded Queue Card -->
+
+</div>
+<!-- Right Column: Settings & Labeling Summary (4 Columns) -->
+<div class="lg:col-span-4 flex flex-col gap-space-lg">
+<!-- Processing Settings Card -->
+
+<!-- Output CSV Preview Card -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col gap-space-md">
+<div class="flex items-center gap-space-sm pb-space-xs">
+<div class="w-8 h-8 rounded-lg bg-surface-container text-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">save</span>
+</div>
+<div>
+<h3 class="font-title-sm text-title-sm text-on-surface">Archivo Consolidado de Salida</h3>
+<p class="font-label-md text-label-md text-on-surface-variant">Generación automática lista</p>
+</div>
+</div>
+<!-- Dynamic File Box -->
+<div class="flex flex-col gap-1.5 p-space-sm bg-surface-container-low rounded-lg">
+<span class="font-label-md text-label-md text-on-surface-variant">Nombre de archivo previsto:</span>
+<div class="font-code-filename text-code-filename text-primary font-bold flex items-center gap-1.5 bg-surface-container-lowest p-2 rounded shadow-inner truncate">
+<span class="material-symbols-outlined text-[16px] text-primary shrink-0">description</span>
+<span class="truncate">dataset_entrenamiento_consolidado_04-10-26.csv</span>
+</div>
+</div>
+<div class="flex flex-col gap-1 text-[11px] font-label-md text-on-surface-variant"><span class="font-semibold text-on-surface">Ubicación física en servidor Python:</span><div class="flex items-center gap-2"><span class="font-code-filename bg-surface-container-low px-2 py-1 rounded truncate text-outline flex-1 border border-outline-variant/30 text-[11px]">C:\ESP32_Datasets\Consolidados\</span><button type="button" title="Explorar directorio" onclick="alert('Abriendo directorio C:\\ESP32_Datasets\\Consolidados\\...');" class="h-8 px-2.5 rounded-lg bg-surface-container hover:bg-surface-dim text-primary flex items-center justify-center gap-1 transition-colors border border-outline-variant/30 text-label-md shrink-0"><span class="material-symbols-outlined text-[18px]">folder_open</span><span class="font-medium text-[11px] hidden sm:inline">Explorar</span></button></div></div>
+<!-- Informative Banner -->
+
+<!-- Action Buttons -->
+<div class="flex flex-col gap-space-sm pt-space-xs">
+<button class="w-full min-h-[48px] rounded-xl bg-primary hover:bg-primary-container text-on-primary font-label-lg text-label-lg flex items-center justify-center gap-space-sm transition-all duration-200 shadow-md hover:shadow-lg active:scale-[0.99]" id="processBtn" onclick="startDataPreparation()">
+<span class="material-symbols-outlined text-[22px]" id="processBtnIcon">dataset</span>
+<span id="processBtnText" class="">Preparar Datos y Unificar CSV</span>
+</button>
+<div class="grid grid-cols-2 gap-space-sm">
+
+
+</div>
+</div>
+</div>
+<!-- Processing Progress Modal / Banner (Hidden initially) -->
+<div class="hidden bg-surface-container-lowest rounded-xl p-space-md shadow-md flex flex-col gap-space-sm" id="processingCard">
+<div class="flex items-center justify-between">
+<span class="font-label-lg text-label-lg text-primary font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] animate-spin">progress_activity</span>
+              Procesando datasets...
+            </span>
+<span class="font-code-filename text-primary font-bold" id="progressPercent">0%</span>
+</div>
+<!-- Progress bar -->
+<div class="w-full h-2 rounded-full bg-surface-container overflow-hidden">
+<div class="h-full bg-primary rounded-full transition-all duration-300 w-0" id="progressBarFill"></div>
+</div>
+<span class="font-label-md text-label-md text-on-surface-variant" id="progressStatusText">
+            Iniciando filtro de ruido Kalman...
+          </span>
+</div>
+</div>
+</div>
+<!-- Data Quality and Spatial Matrix Coverage Overview -->
+
+<!-- System Diagnostic Status Bar (Footer aligned) -->
+
+</section>
+<!-- Interactive JavaScript logic for Dropzone, State, and Consolidation Flow -->
+<script>
+    function removeFile(button) {
+      const row = button.closest('.file-row');
+      if (row) {
+        row.remove();
+        updateQueueMetrics();
+      }
+    }
+
+    function clearFilesQueue() {
+      const list = document.getElementById('fileItemsList');
+      list.innerHTML = `
+        <div class="p-space-lg text-center flex flex-col items-center justify-center gap-space-xs text-on-surface-variant bg-surface-container-low rounded-lg">
+          <span class="material-symbols-outlined text-[32px] text-outline-variant">folder_off</span>
+          <span class="font-label-lg text-label-lg font-semibold text-on-surface">No hay archivos en la cola</span>
+          <span class="font-label-md text-label-md">Arrastra archivos o haz clic en "Cargar carpeta local" para comenzar</span>
+        </div>
+      `;
+      updateQueueMetrics(0, 0);
+    }
+
+    function loadSampleLocalFolder() {
+      location.reload();
+    }
+
+    function updateQueueMetrics(count = null, samples = null) {
+      const rows = document.querySelectorAll('.file-row');
+      const badge = document.getElementById('queueBadge');
+      const currentCount = count !== null ? count : rows.length;
+      const currentSamples = samples !== null ? samples : (currentCount * 142);
+
+      if (badge) {
+        if (currentCount === 0) {
+          badge.className = "px-space-sm py-1 rounded-full bg-surface-container text-on-surface-variant font-label-md text-label-md font-semibold inline-flex items-center gap-1";
+          badge.innerHTML = `<span class="material-symbols-outlined text-[14px]">info</span> 0 archivos listos`;
+        } else {
+          badge.className = "px-space-sm py-1 rounded-full bg-secondary-container text-on-secondary-container font-label-md text-label-md font-semibold inline-flex items-center gap-1";
+          badge.innerHTML = `<span class="material-symbols-outlined text-[14px]">check_circle</span> ${currentCount} archivos listos (~${currentSamples} muestras en total)`;
+        }
+      }
+    }
+
+    function handleFileSelect(event) {
+      const files = event.target.files;
+      if (!files || files.length === 0) return;
+      alert(`Se han detectado ${files.length} archivo(s). El backend validará las etiquetas de zona correspondientes.`);
+    }
+
+    function checkFilesIntegrity() {
+      alert("Comprobación completada: Todas las 9 zonas cuentan con columnas requeridas [Timestamp, MAC, RSSI, Frequency, Zone_ID].");
+    }
+
+    function startDataPreparation() {
+      const processBtn = document.getElementById('processBtn');
+      const processBtnIcon = document.getElementById('processBtnIcon');
+      const processBtnText = document.getElementById('processBtnText');
+      const processingCard = document.getElementById('processingCard');
+      const progressBarFill = document.getElementById('progressBarFill');
+      const progressPercent = document.getElementById('progressPercent');
+      const progressStatusText = document.getElementById('progressStatusText');
+
+      if (!processingCard) return;
+
+      processingCard.classList.remove('hidden');
+      processBtn.disabled = true;
+      processBtn.classList.add('opacity-70', 'cursor-not-allowed');
+      processBtnIcon.innerText = "pending";
+      processBtnText.innerText = "Procesando en Python...";
+
+      let progress = 0;
+      const steps = [
+        "Iniciando deserialización de 9 archivos CSV...",
+        "Aplicando filtro Kalman sobre series temporales de RSSI...",
+        "Calculando rango intercuartílico (IQR) y podando valores anómalos...",
+        "Fusionando etiquetas espaciales Zone_1 a Zone_9...",
+        "Exportando matriz consolidada final: dataset_entrenamiento_consolidado_04-10-26.csv",
+        "¡Proceso completado exitosamente!"
+      ];
+
+      const interval = setInterval(() => {
+        progress += 20;
+        if (progress > 100) progress = 100;
+
+        progressBarFill.style.width = progress + '%';
+        progressPercent.innerText = progress + '%';
+        
+        const stepIndex = Math.min(Math.floor((progress / 100) * (steps.length - 1)), steps.length - 1);
+        progressStatusText.innerText = steps[stepIndex];
+
+        if (progress >= 100) {
+          clearInterval(interval);
+          processBtn.disabled = false;
+          processBtn.classList.remove('opacity-70', 'cursor-not-allowed', 'bg-primary');
+          processBtn.classList.add('bg-secondary', 'text-on-secondary');
+          processBtnIcon.innerText = "check_circle";
+          processBtnText.innerText = "Dataset Unificado con Éxito";
+
+          setTimeout(() => {
+            alert("¡Dataset consolidado y etiquetado con éxito! El archivo ya está listo para pasar al módulo de 'Entrenamiento Modelos'.");
+          }, 400);
+        }
+      }, 450);
+    }
+
+    // Drag and drop visual cues
+    const dropzone = document.getElementById('dropzoneContainer');
+    if (dropzone) {
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.add('bg-primary-fixed/20');
+        }, false);
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropzone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropzone.classList.remove('bg-primary-fixed/20');
+        }, false);
+      });
+
+      dropzone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files && files.length > 0) {
+          alert(`Se recibieron ${files.length} archivos mediante arrastre.`);
+        }
+      });
+    }
+  </script>
+</div></main><footer class="w-full bg-surface-container-low py-space-md shadow-[0_-1px_8px_rgba(0,0,0,0.02)]"><div class="w-full px-space-md lg:px-margin-desktop flex flex-col sm:flex-row items-center justify-between gap-space-xs text-center sm:text-left"><div class="flex items-center gap-space-xs font-label-md text-label-md text-on-surface-variant"></div><div class="font-label-md text-label-md text-on-surface-variant"></div></div></footer>
+
+
+
+
+</body></html>

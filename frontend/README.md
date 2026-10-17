@@ -34,3 +34,11 @@ En desarrollo, abra `http://localhost:5173` en la PC o `http://IP_DEL_HOTSPOT:51
 - Gateway: parámetros de referencia de solo lectura y recepción basada en datos reales.
 
 El estado del recorrido se guarda en `localStorage`. Los resultados y archivos permanecen en el disco del PC y pueden consultarse en Datasets aunque se borre el almacenamiento del navegador.
+
+## Preparación de datos
+
+La card «Preparación de Datos» y la navegación «Preparación» abren la vista basada en la referencia Stitch de `references/Preparado de datos/`. Permite seleccionar varios CSV o arrastrarlos, revisar sus tarjetas, eliminar archivos y recorrer la lista con scroll interno. La zona se sugiere a partir del nombre y es editable antes de procesar. No se solicita ni se deduce un dataset del nombre del archivo; basta con asignar la zona. Se conserva el nombre del archivo como procedencia. Acepta hasta 200 archivos y 28 MB por selección.
+
+«Preparar datos y unificar CSV» envía la selección al backend y ejecuta el agrupado Python real. No recorta filas iniciales, no aplica filtros Kalman/IQR ni normaliza para entrenamiento. Conserva los vectores incompletos marcados y muestra conteos reales. El resultado y el resumen se descargan desde la pantalla; se guardan en la carpeta elegida con «Explorar» o escrita en el campo de ruta. Sin una ruta elegida se utiliza `data/processed/preparaciones/<id>/`. El botón «Explorar» abre el selector nativo de carpetas del sistema operativo (Zenity en Linux, diálogo de Windows o Finder en macOS); cancelar conserva la ruta anterior. Si el nombre existe, añade un sufijo numérico sin sobrescribir. Los originales seleccionados no se modifican. Preparar no ejecuta un entrenamiento.
+
+La preparación admite zonas enteras positivas y cualquier cantidad de archivos; el entrenamiento y los mapas actuales todavía conservan su configuración de nueve zonas.

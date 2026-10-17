@@ -21,10 +21,10 @@ COLUMNAS_CARACTERISTICAS: Final = (
 
 # Fuente: docs/mapa_torres_fisicas.md.
 MAC_A_CARACTERISTICA: Final = {
-    "10:06:1C:D5:95:8C": "rssi_sup_izq",
-    "10:06:1C:D5:95:04": "rssi_sup_der",
-    "10:06:1C:D4:8F:C4": "rssi_inf_izq",
-    "90:15:06:5A:30:D0": "rssi_inf_der",
+    "10:06:1C:D5:95:04": "rssi_sup_izq",
+    "90:15:06:5A:30:D0": "rssi_sup_der",
+    "10:06:1C:D5:95:8C": "rssi_inf_izq",
+    "10:06:1C:D4:8F:C4": "rssi_inf_der",
 }
 
 # (columna, fila), con origen visual en la esquina superior izquierda.

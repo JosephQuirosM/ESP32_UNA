@@ -6,12 +6,12 @@ Este archivo es la fuente de verdad para convertir una MAC de torre en una colum
 
 Antes de la nueva captura, confirme que estas placas se coloquen en las mismas esquinas indicadas. Si cambia una posición, actualice esta tabla antes de entrenar.
 
-| Ubicación física | MAC de la torre | Columna del modelo |
-|---|---|---|
-| Esquina superior izquierda | `10:06:1C:D5:95:8C` | `rssi_sup_izq` |
-| Esquina superior derecha | `10:06:1C:D5:95:04` | `rssi_sup_der` |
-| Esquina inferior izquierda | `10:06:1C:D4:8F:C4` | `rssi_inf_izq` |
-| Esquina inferior derecha | `90:15:06:5A:30:D0` | `rssi_inf_der` |
+| Torre | Ubicación física | MAC de la torre | Columna del modelo |
+|---|---|---|---|
+| I | Esquina superior izquierda | `10:06:1C:D5:95:04` | `rssi_sup_izq` |
+| II | Esquina superior derecha | `90:15:06:5A:30:D0` | `rssi_sup_der` |
+| III | Esquina inferior izquierda | `10:06:1C:D5:95:8C` | `rssi_inf_izq` |
+| IV | Esquina inferior derecha | `10:06:1C:D4:8F:C4` | `rssi_inf_der` |
 
 ## Cuadrícula
 

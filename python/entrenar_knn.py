@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -23,14 +24,14 @@ CANDIDATOS_K = (1, 3, 5, 7, 9, 11, 15)
 
 
 def cargar_dataset(ruta: Path) -> tuple[list[list[float]], list[int], list[str], list[dict[str, str]]]:
-    """Lee vectores completos y agrupa estrictamente por sesión física."""
+    """Lee vectores completos; dataset y sesiones son metadatos opcionales."""
     X: list[list[float]] = []
     y: list[int] = []
     grupos: list[str] = []
     filas: list[dict[str, str]] = []
-    with ruta.open(newline="", encoding="utf-8") as flujo:
+    with ruta.open(newline="", encoding="utf-8-sig") as flujo:
         lector = csv.DictReader(flujo)
-        requeridas = {"sesion_gateway", "jugador_id", "sesion_jugador", "zona", "completo", *COLUMNAS_CARACTERISTICAS}
+        requeridas = {"zona", "completo", *COLUMNAS_CARACTERISTICAS}
         faltantes = requeridas - set(lector.fieldnames or [])
         if faltantes:
             raise ValueError(f"faltan columnas procesadas: {', '.join(sorted(faltantes))}")
@@ -47,13 +48,39 @@ def cargar_dataset(ruta: Path) -> tuple[list[list[float]], list[int], list[str],
             X.append(vector)
             y.append(zona)
             grupos.append(
-                f"gateway={fila['sesion_gateway']};jugador={fila['jugador_id']};arranque={fila['sesion_jugador']}"
+                fila.get("dataset") or
+                f"gateway={fila.get('sesion_gateway', '')};jugador={fila.get('jugador_id', '')};arranque={fila.get('sesion_jugador', '')}"
             )
             filas.append(fila)
     if not X:
         raise ValueError("no hay vectores completos para entrenar")
-    if len(set(grupos)) < 2:
-        raise ValueError("se requieren al menos dos sesiones para evaluar")
+    return X, y, grupos, filas
+
+
+def cargar_entradas(entradas: list[Path], zona: int | None = None):
+    """Combina CSV preparados o crudos, sin exigir datasets o zonas completos."""
+    from preprocesar_calibracion import leer_y_preprocesar, guardar_muestras
+    archivos = []
+    for entrada in entradas:
+        encontrados = sorted(entrada.glob("*.csv")) if entrada.is_dir() else [entrada]
+        if not encontrados:
+            raise ValueError(f"{entrada}: no contiene CSV")
+        archivos.extend(encontrados)
+    X, y, grupos, filas = [], [], [], []
+    with tempfile.TemporaryDirectory() as carpeta:
+        temporal = Path(carpeta) / "vectores.csv"
+        for archivo in archivos:
+            with archivo.open(newline="", encoding="utf-8-sig") as flujo:
+                preparado = "completo" in (csv.DictReader(flujo).fieldnames or [])
+            if preparado:
+                nuevos = cargar_dataset(archivo)
+            else:
+                muestras, _ = leer_y_preprocesar([archivo], zona=zona)
+                guardar_muestras(temporal, muestras)
+                nuevos = cargar_dataset(temporal)
+            X.extend(nuevos[0]); y.extend(nuevos[1]); grupos.extend(nuevos[2]); filas.extend(nuevos[3])
+    if not X:
+        raise ValueError("no hay vectores completos para entrenar")
     return X, y, grupos, filas
 
 
@@ -97,9 +124,11 @@ def validar_por_sesion(X: list[list[float]], y: list[int], grupos: list[str], k:
 def seleccionar_k(X: list[list[float]], y: list[int], grupos: list[str]) -> tuple[int, dict[str, Any]]:
     resultados: dict[str, Any] = {}
     for k in CANDIDATOS_K:
+        if k > len(y) - max(Counter(grupos).values()):
+            continue
         metricas, detalles = validar_por_sesion(X, y, grupos, k)
         resultados[str(k)] = {"global": metricas, "sesiones": detalles}
-    mejor = max(CANDIDATOS_K, key=lambda k: (resultados[str(k)]["global"]["exactitud"], -k))
+    mejor = max((int(k) for k in resultados), key=lambda k: (resultados[str(k)]["global"]["exactitud"], -k))
     return mejor, resultados
 
 
@@ -111,8 +140,8 @@ def generar_informe(
     lineas = [
         "# Evaluación KNN del MVP RSSI", "", f"Entrada procesada: `{entrada}`", "",
         "## Protocolo de evaluación", "",
-        "La validación usa *leave-one-session-out*: se retiene por completo una sesión de captura "
-        "(incluida su orientación fija) y nunca se mezclan filas de esa sesión entre entrenamiento y prueba. "
+        "La validación usa *leave-one-session-out*: se retiene por completo un dataset completo "
+        "(sus nueve zonas cuando están presentes) y nunca se mezclan filas de esa sesión entre entrenamiento y prueba. "
         "Es una evaluación de MVP; no representa precisión de producción.", "",
         f"Muestras completas: {len(y)}", f"Distribución por zona: {dict(sorted(Counter(y).items()))}",
         f"K seleccionado: {k} (ponderación por distancia y normalización estándar).", "",
@@ -122,7 +151,7 @@ def generar_informe(
         f"- Distancia Manhattan media: {global_mejor['distancia_manhattan_media']:.3f} celdas", "",
         "## Comparación de K", "", "| K | Exactitud | Exacta o vecina | Distancia media |", "|---:|---:|---:|---:|",
     ]
-    for candidato in CANDIDATOS_K:
+    for candidato in map(int, resultados):
         metricas = resultados[str(candidato)]["global"]
         lineas.append(
             f"| {candidato} | {metricas['exactitud']:.2%} | {metricas['exactitud_vecina']:.2%} | "
@@ -138,12 +167,35 @@ def generar_informe(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("entrada", type=Path, help="CSV generado por preprocesar_calibracion.py")
+    parser.add_argument("entrada", nargs="+", type=Path, help="CSV crudos por zona, carpetas o uno o más CSV preparados")
+    parser.add_argument("--zona", type=int, help="Zona explícita para CSV crudos sin zona en el nombre")
+    parser.add_argument("--validar-por-grupo", action="store_true", help="Evaluación opcional por dataset o sesión; no restringe las entradas del entrenamiento")
+    parser.add_argument("--k", type=int, default=5, help="Número de vecinos al entrenar sin validación por grupos (por defecto 5)")
     parser.add_argument("--modelo", type=Path, required=True, help="Destino .joblib")
     parser.add_argument("--metricas", type=Path, required=True, help="Informe Markdown de evaluación")
     parser.add_argument("--metadata", type=Path, required=True, help="JSON con el contrato del modelo")
     args = parser.parse_args()
-    X, y, grupos, _ = cargar_dataset(args.entrada)
+    X, y, grupos, _ = cargar_entradas(args.entrada, zona=args.zona)
+    if args.k < 1 or args.k > len(X):
+        parser.error("--k debe estar entre 1 y la cantidad de vectores completos")
+    if not args.validar_por_grupo or len(set(grupos)) < 2:
+        modelo = crear_modelo(args.k).fit(X, y)
+        args.modelo.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(modelo, args.modelo)
+        args.metricas.parent.mkdir(parents=True, exist_ok=True)
+        args.metricas.write_text(
+            f"# Entrenamiento KNN\n\nMuestras completas: {len(y)}. K: {args.k}.\n"
+            "\nEntrenamiento con todas las entradas seleccionadas, sin evaluación por grupos. "
+            "La elección de datos de entrenamiento y prueba corresponde al usuario.\n", encoding="utf-8")
+        args.metadata.parent.mkdir(parents=True, exist_ok=True)
+        args.metadata.write_text(json.dumps({
+            "version": 1, "modelo": "KNeighborsClassifier", "k": args.k,
+            "caracteristicas": list(COLUMNAS_CARACTERISTICAS),
+            "entradas": [str(p) for p in args.entrada],
+            "muestras_completas": len(y), "evaluacion": None,
+        }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(json.dumps({"k": args.k, "muestras": len(y), "evaluacion": None}))
+        return
     k, resultados = seleccionar_k(X, y, grupos)
     metricas, _ = validar_por_sesion(X, y, grupos, k)
 
@@ -162,7 +214,7 @@ def main() -> None:
     metadata = {
         "version": 1, "modelo": "KNeighborsClassifier", "k": k,
         "caracteristicas": list(COLUMNAS_CARACTERISTICAS),
-        "evaluacion": "leave-one-session-out (sesiones completas con orientación fija)",
+        "evaluacion": "leave-one-group-out (dataset completo; sesión en CSV antiguos)",
         "muestras_completas": len(y), "metricas_oof": metricas,
         "resultados_por_k": resultados,
     }

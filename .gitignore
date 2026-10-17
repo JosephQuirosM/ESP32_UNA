@@ -1,6 +1,59 @@
+# Entornos y cachés de Python.
 .venv/
+venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
-# Metadatos locales de las capturas web.
-data/raw/.lecturas/
+# Dependencias, compilaciones y cachés de Node/TypeScript.
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+coverage/
+
+# Compilaciones locales de firmware.
+.pio/
+
+# Datos locales: capturas raw, datos limpios, vectores, mapas y resúmenes.
+# Conserva documentación y marcadores de las carpetas.
+/data/**
+!/data/**/
+!/data/**/.gitkeep
+!/data/**/README.md
+
+# Modelos entrenados y sus metadatos.
+/models/**
+!/models/**/
+!/models/**/.gitkeep
+!/models/**/README.md
+*.joblib
+*.pkl
+*.pickle
+
+# Resúmenes generados fuera de data/ (no excluye los JSON de configuración).
+resumen.json
+*_resumen.json
+summary.json
+*_summary.json
+
+# Logs, temporales y bloqueos de editores.
+*.log
+*.tmp
+*.swp
+*.swo
+.~lock.*#
+~$*
+.DS_Store
+Thumbs.db
+
+# Variables locales; conserva ejemplos de configuración.
+.env
+.env.*
+!.env.example
+!.env.sample

@@ -6,19 +6,15 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-from collections import Counter, defaultdict
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
 from mvp_config import (
     COLUMNAS_CARACTERISTICAS,
-    DURACION_ZONA_SEGUNDOS,
-    EXCLUSION_TRANSICION_SEGUNDOS,
     MAC_A_CARACTERISTICA,
-    ZONAS_EN_ORDEN,
     normalizar_mac,
-    zona_por_tiempo,
 )
 
 COLUMNAS_REQUERIDAS = {
@@ -27,7 +23,7 @@ COLUMNAS_REQUERIDAS = {
 }
 COLUMNAS_SALIDA = (
     "sesion_gateway", "jugador_id", "sesion_jugador", "secuencia", "elapsed_s",
-    "zona", *COLUMNAS_CARACTERISTICAS,
+    "zona", "dataset", "archivo_origen", *COLUMNAS_CARACTERISTICAS,
     "faltantes", "completo",
 )
 
@@ -40,13 +36,10 @@ def _clave_sesion(fila: dict[str, str]) -> tuple[int, int, int]:
     return (int(fila["sesion_gateway"]), int(fila["jugador_id"]), int(fila["sesion_jugador"]))
 
 
-def construir_muestras(filas: Iterable[dict[str, str]]) -> tuple[list[dict[str, object]], dict[str, int]]:
-    """Agrupa las cuatro RSSI de cada secuencia y aplica el plan de recorrido.
-
-    Se elimina la transición inicial de seis segundos de *cada* zona. Las
-    muestras incompletas permanecen en el CSV procesado para auditoría, pero
-    quedan marcadas y el entrenamiento sólo usa ``completo=1``.
-    """
+def construir_muestras(filas: Iterable[dict[str, str]], zona: int, dataset: str = "", archivo_origen: str = "") -> tuple[list[dict[str, object]], dict[str, int]]:
+    """Agrupa RSSI por secuencia en una zona explícita, sin recortes temporales."""
+    if not isinstance(zona, int) or isinstance(zona, bool) or zona < 1:
+        raise ValueError("zona debe ser un entero positivo")
     filas_parseadas: list[tuple[datetime, dict[str, str]]] = []
     for numero, fila in enumerate(filas, start=2):
         try:
@@ -73,16 +66,6 @@ def construir_muestras(filas: Iterable[dict[str, str]]) -> tuple[list[dict[str, 
     for timestamp, fila in filas_parseadas:
         clave_sesion = _clave_sesion(fila)
         elapsed_s = (timestamp - inicio_por_sesion[clave_sesion]).total_seconds()
-        indice_zona = int(elapsed_s // DURACION_ZONA_SEGUNDOS)
-        dentro_zona = elapsed_s - indice_zona * DURACION_ZONA_SEGUNDOS
-        if indice_zona >= len(ZONAS_EN_ORDEN):
-            fuera_recorrido += 1
-            continue
-        if dentro_zona < EXCLUSION_TRANSICION_SEGUNDOS:
-            excluidas_transicion += 1
-            continue
-
-        zona = zona_por_tiempo(elapsed_s)
         clave = (*clave_sesion, int(fila["secuencia"]))
         muestra = vectores.setdefault(
             clave,
@@ -90,6 +73,7 @@ def construir_muestras(filas: Iterable[dict[str, str]]) -> tuple[list[dict[str, 
                 "sesion_gateway": clave_sesion[0], "jugador_id": clave_sesion[1],
                 "sesion_jugador": clave_sesion[2], "secuencia": clave[-1],
                 "elapsed_s": elapsed_s, "zona": zona,
+                "dataset": dataset, "archivo_origen": archivo_origen,
             },
         )
         columna = MAC_A_CARACTERISTICA[normalizar_mac(fila["mac_torre"])]
@@ -122,17 +106,42 @@ def construir_muestras(filas: Iterable[dict[str, str]]) -> tuple[list[dict[str, 
     return muestras, resumen
 
 
-def leer_y_preprocesar(entradas: Iterable[Path]) -> tuple[list[dict[str, object]], dict[str, int]]:
-    """Lee una o más sesiones v3 y conserva su separación en las muestras."""
-    filas: list[dict[str, str]] = []
+def leer_y_preprocesar(entradas: Iterable[Path], zona: int | None = None) -> tuple[list[dict[str, object]], dict[str, int]]:
+    """Procesa cada CSV por separado y reúne los vectores de todos los datasets.
+
+    Acepta archivos o carpetas (sin búsqueda recursiva). La zona se toma de zona_N
+    o del argumento explícito; el nombre o número de dataset no es obligatorio.
+    """
+    archivos = []
     for entrada in entradas:
-        with entrada.open(newline="", encoding="utf-8") as flujo:
+        candidatos = sorted(entrada.glob("*.csv")) if entrada.is_dir() else [entrada]
+        if not candidatos:
+            raise ValueError(f"{entrada}: no contiene CSV")
+        archivos.extend(candidatos)
+    muestras = []
+    resumen: dict[str, int] = {}
+    vistos = set()
+    for entrada in archivos:
+        if entrada.resolve() in vistos:
+            raise ValueError(f"archivo de entrada repetido: {entrada}")
+        vistos.add(entrada.resolve())
+        etiqueta_zona = re.search(r"zona[_ -]?(\d+)(?:_|$)", entrada.stem, re.IGNORECASE)
+        if zona is None and not etiqueta_zona:
+            raise ValueError(f"{entrada}: indica la zona con --zona o utiliza un nombre con zona_N")
+        zona_archivo = zona if zona is not None else int(etiqueta_zona[1])
+        etiqueta_dataset = re.search(r"dataset[_ -]?(\d+)", entrada.stem, re.IGNORECASE)
+        dataset = f"dataset {int(etiqueta_dataset[1])}" if etiqueta_dataset else ""
+        with entrada.open(newline="", encoding="utf-8-sig") as flujo:
             lector = csv.DictReader(flujo)
             faltantes = COLUMNAS_REQUERIDAS - set(lector.fieldnames or [])
             if faltantes:
                 raise ValueError(f"{entrada}: faltan columnas: {', '.join(sorted(faltantes))}")
-            filas.extend(lector)
-    return construir_muestras(filas)
+            nuevas, conteos = construir_muestras(lector, zona_archivo, dataset, str(entrada))
+        muestras.extend(nuevas)
+        for nombre, cantidad in conteos.items():
+            resumen[nombre] = resumen.get(nombre, 0) + cantidad
+    resumen["archivos_entrada"] = len(archivos)
+    return muestras, resumen
 
 
 def guardar_muestras(salida: Path, muestras: list[dict[str, object]]) -> None:
@@ -146,11 +155,12 @@ def guardar_muestras(salida: Path, muestras: list[dict[str, object]]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("entradas", nargs="+", type=Path, help="Uno o más CSV v3 de calibración")
+    parser.add_argument("entradas", nargs="+", type=Path, help="CSV por zona o carpetas Cleaned (sin búsqueda recursiva)")
+    parser.add_argument("--zona", type=int, help="Zona de todos los CSV de entrada, si no está en sus nombres")
     parser.add_argument("--salida", type=Path, required=True, help="CSV de vectores procesados")
     parser.add_argument("--resumen", type=Path, help="JSON de trazabilidad del preprocesamiento")
     args = parser.parse_args()
-    muestras, resumen = leer_y_preprocesar(args.entradas)
+    muestras, resumen = leer_y_preprocesar(args.entradas, zona=args.zona)
     guardar_muestras(args.salida, muestras)
     if args.resumen:
         args.resumen.parent.mkdir(parents=True, exist_ok=True)

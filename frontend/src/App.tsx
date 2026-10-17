@@ -22,13 +22,15 @@ import {
 } from "lucide-react";
 import Lecturas from "./Lecturas";
 import Datasets from "./Datasets";
+import PreparacionDatos from "./PreparacionDatos";
 import { useServidor } from "./useServidor";
 
-type Pagina = "inicio" | "captura" | "gateway" | "datasets" | "ayuda";
+type Pagina = "inicio" | "captura" | "gateway" | "datasets" | "preparacion" | "ayuda";
 const NAVEGACION: { pagina: Pagina; titulo: string; icono: typeof Grid3X3 }[] =
   [
     { pagina: "inicio", titulo: "Inicio", icono: Layers },
     { pagina: "captura", titulo: "Recolección", icono: Grid3X3 },
+    { pagina: "preparacion", titulo: "Preparación", icono: Filter },
     { pagina: "gateway", titulo: "Gateway", icono: Radio },
     { pagina: "datasets", titulo: "Datasets", icono: Database },
     { pagina: "ayuda", titulo: "Ayuda", icono: CircleHelp },
@@ -37,9 +39,9 @@ const MODULOS = [
   {
     titulo: "Preparación de Datos",
     texto:
-      "Filtrado de ruido, normalización de lecturas RSSI y etiquetado para exportación.",
-    detalle: "Técnicas en desarrollo:",
-    etiquetas: ["Filtro Kalman", "Outliers IQR"],
+      "Agrupa las lecturas RSSI de tus CSV por zona y genera un dataset etiquetado para entrenar.",
+    detalle: "Preparación por archivo:",
+    etiquetas: ["CSV por zona", "Vectores RSSI"],
     icono: Filter,
   },
   {
@@ -230,7 +232,7 @@ export default function App() {
               </button>
             ))}
             <div className="menu-futuros">
-              {MODULOS.map(({ titulo, icono: Icono }) => (
+              {MODULOS.filter((modulo) => modulo.icono !== Filter).map(({ titulo, icono: Icono }) => (
                 <div key={titulo}>
                   <Icono size={19} />
                   <span>{titulo}</span>
@@ -316,12 +318,12 @@ export default function App() {
                 </article>
                 {MODULOS.map(
                   ({ titulo, texto, detalle, etiquetas, icono: Icono }) => (
-                    <article className="modulo" key={titulo}>
+                    <article className={`modulo ${Icono === Filter ? "modulo-activo" : ""}`} key={titulo}>
                       <div className="fila">
                         <span className="icono-modulo">
                           <Icono />
                         </span>
-                        <span className="badge">PRÓXIMAMENTE</span>
+                        <span className="badge">{Icono === Filter ? "DISPONIBLE" : "PRÓXIMAMENTE"}</span>
                       </div>
                       <h3>{titulo}</h3>
                       <p>{texto}</p>
@@ -333,9 +335,9 @@ export default function App() {
                           ))}
                         </div>
                       </div>
-                      <button className="boton" disabled>
-                        <LockKeyhole size={16} />
-                        En desarrollo
+                      <button className={`boton ${Icono === Filter ? "primario" : ""}`} disabled={Icono !== Filter} onClick={() => navegar("preparacion")}>
+                        {Icono === Filter ? <ArrowRight size={18} /> : <LockKeyhole size={16} />}
+                        {Icono === Filter ? "Preparar datos" : "En desarrollo"}
                       </button>
                     </article>
                   ),
@@ -402,7 +404,9 @@ export default function App() {
             <div className="encabezado-pagina">
               <p className="etiqueta">PANEL DE CONTROL · ESP32</p>
               <h1>
-                {pagina === "captura"
+                {pagina === "preparacion"
+                  ? "Preparación y Etiquetado de Datasets"
+                  : pagina === "captura"
                   ? "Recolección de Datos"
                   : pagina === "gateway"
                     ? "Ajustes del Gateway"
@@ -411,7 +415,9 @@ export default function App() {
                       : "Guía de Conexión"}
               </h1>
               <p>
-                {pagina === "captura"
+                {pagina === "preparacion"
+                  ? "Carga los CSV de tus zonas y genera un único archivo etiquetado para entrenar modelos."
+                  : pagina === "captura"
                   ? "Elige cómo quieres recorrer tu sesión de medición."
                   : pagina === "gateway"
                     ? "Parámetros de referencia del sistema actual."
@@ -544,6 +550,9 @@ export default function App() {
             )}
           </>
         )}
+        <div hidden={pagina !== "preparacion"}>
+          <PreparacionDatos />
+        </div>
         <div hidden={pagina !== "captura"}>
           <Lecturas servidor={servidor} conectado={conectado} />
         </div>

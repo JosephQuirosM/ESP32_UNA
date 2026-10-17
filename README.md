@@ -81,11 +81,26 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-Cuando se haya capturado el nuevo CSV de calibración, se procesará así:
+Puede entrenar directamente con los nueve CSV de un dataset, indicando su carpeta (sin crear previamente un CSV combinado):
+
+```bash
+.venv/bin/python python/entrenar_knn.py \
+  "data/raw/dataset 1/dataset 1 Cleaned" \
+  --k 5 \
+  --modelo models/knn_dataset1.joblib \
+  --metricas data/processed/evaluacion_dataset1.md \
+  --metadata models/knn_dataset1.json
+```
+
+También acepta archivos individuales, carpetas y varios CSV preparados, mezclando capturas libremente. No exige nueve archivos ni un conjunto completo de zonas por dataset. Por defecto entrena todas las entradas con `--k` (5); la evaluación y selección de K por grupos es opcional con `--validar-por-grupo`. El entrenamiento convierte internamente las lecturas en vectores, sin guardar un CSV combinado permanente ni hacer recortes por tiempo.
+
+Los CSV separados por zona se procesan juntos indicando las carpetas Cleaned:
 
 ```bash
 .venv/bin/python python/preprocesar_calibracion.py \
-  data/raw/calibracion_6x2_5m_nueva.csv \
+  "data/raw/dataset 1/dataset 1 Cleaned" \
+  "data/raw/dataset 2/dataset 2 Cleaned" \
+  "data/raw/dataset 3/dataset 3 Cleaned" \
   --salida data/processed/calibracion_6x2_5m_nueva.csv \
   --resumen data/processed/calibracion_6x2_5m_nueva_resumen.json
 
@@ -100,7 +115,9 @@ Cuando se haya capturado el nuevo CSV de calibración, se procesará así:
   --mapa data/processed/mapa_calor_knn_mvp_6x2_5m_nueva.png
 ```
 
-El preprocesamiento actual etiqueta zonas 1 a 9 en bloques consecutivos de **60 segundos** y elimina los primeros **6 segundos** de cada bloque. Antes de capturar, confirme que este protocolo coincide con el recorrido físico planificado. Toda nueva sesión debe conservar su identidad para que la evaluación no mezcle capturas temporalmente correlacionadas.
+El preprocesamiento obtiene la zona de `zona_Z` en el nombre; el prefijo DatasetN es opcional. Para archivos crudos con nombres libres como `lecturas.csv`, indique `--zona 4` (aplica a todos los crudos de esa invocación) o use la preparación web para asignar una zona por archivo. Acepta carpetas sin búsqueda recursiva o archivos individuales y genera un único CSV de vectores para entrenar. No elimina segundos iniciales, no divide en bloques de 60 segundos y no vuelve a quitar 103 registros: las carpetas Cleaned ya están depuradas. Cada archivo se agrupa por separado para evitar mezclar secuencias entre zonas. Se conserva la procedencia en `dataset` y `archivo_origen`.
+
+Se mantienen los controles de MAC, duplicados y vectores incompletos: el KNN requiere las cuatro RSSI de una misma secuencia y sólo entrena con `completo=1`. Sólo si se solicita `--validar-por-grupo`, la evaluación retiene grupos completos por turno. La columna dataset es opcional y no restringe qué capturas pueden combinarse. Los CSV procesados antiguos sin columna `dataset` conservan la agrupación por sesión.
 
 Después de una captura real, genere el informe de integridad con:
 
@@ -127,3 +144,17 @@ Consulte [docs/prueba_campo_captura.md](docs/prueba_campo_captura.md) antes de r
 - No reutilice un CSV entre pruebas: el receptor anexa filas y puede mezclar sesiones de jugador.
 
 Consulte [docs/contexto.md](docs/contexto.md) para rutas y flujo detallado.
+
+## Random Forest con CSV por zona
+
+Acepta los mismos CSV preparados o crudos y carpetas que KNN. El usuario elige las entradas de entrenamiento y prueba: no se rechazan por compartir dataset o sesión. No exige nueve archivos ni cobertura de todas las zonas por captura. No aplica recortes temporales adicionales. Usa 300 árboles y semilla 42, sin seleccionar parámetros con la prueba.
+
+```bash
+.venv/bin/python python/entrenar_random_forest.py \
+  "data/raw/dataset 1/dataset 1 Cleaned" \
+  --prueba "data/raw/dataset 3/dataset 3 Cleaned" \
+  --modelo models/random_forest_dataset1_cleaned.joblib \
+  --informe data/processed/random_forest_1_prueba_3.json
+```
+
+Los resultados comparativos de las seis combinaciones están en `data/processed/comparacion_random_forest_cleaned/informe.md`.
