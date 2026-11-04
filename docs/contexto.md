@@ -1,43 +1,43 @@
-# Contexto del checkpoint
+# Contexto del proyecto
 
-## Propósito
+El sistema estima zonas aproximadas mediante fingerprinting RSSI y genera mapas de calor a partir de archivos. La descripción técnica vigente está en [arquitectura.md](arquitectura.md); el [roadmap](../ROADMAP_CODEX_MAPA_CALOR_ESP32.md) distingue la implementación de las propuestas futuras.
 
-Construir un MVP que estime de forma aproximada la permanencia de un jugador dentro de una cuadrícula RSSI 3×3 y permita generar un mapa de calor. No se busca posicionamiento GPS ni distancia física exacta.
+## Flujo actual
 
-## Arquitectura conservada
-
-```text
-Jugador -- beacon ESP-NOW broadcast --> Torres (x4)
-                                           |
-                              registro ESP-NOW unicast escalonado
-                                           v
-PC -- anuncio UDP --> Gateway -- HTTP POST --> receptor Python / CSV
-```
+1. La PC ofrece un hotspot de 2.4 GHz, en el mismo canal que los seis ESP32 (6 por defecto).
+2. El Gateway se conecta como estación por DHCP y asigna IDs dinámicos por MAC al jugador y las torres mediante control ESP-NOW broadcast.
+3. El jugador difunde beacons; las cuatro torres miden RSSI y envían registros ESP-NOW unicast al Gateway.
+4. El Gateway anuncia su presencia por UDP broadcast 4210. Express envía control V3 por unicast con sesión, revisión, ID y puerto; recibe el ACK de limpieza/apertura antes de iniciar el reloj. Puerto 0 desactiva y limpia el Gateway.
+5. Durante una captura, el Gateway envía lotes HTTP al receptor Python en 8080. Python escribe CSV v3 y controla su plazo y cierre después de la confirmación del Gateway.
+6. React controla la aplicación por la API de Express en 8000. Preparación, entrenamiento KNN/Random Forest y mapas ejecutan procesos Python en la PC.
 
 ## Rutas principales
 
 | Ruta | Responsabilidad |
 |---|---|
-| `firmware/Comun/Paquete.h` | Contrato de paquetes ESP-NOW v3. |
-| `firmware/Jugador` | Beacon periódico del jugador. |
-| `firmware/Torre` | Medición RSSI y envío de registros al Gateway. |
-| `firmware/Gateway` | Hotspot, registro de MAC, IDs dinámicos y entrega HTTP. |
-| `python/receptor_gateway.py` | Receptor HTTP y escritor CSV v3. |
-| `python/analizar_captura.py` | Informe de integridad de una captura. |
-| `python/preprocesar_calibracion.py` | Agrupación RSSI y etiquetado de zonas. |
-| `python/entrenar_knn.py` | Entrenamiento y evaluación KNN por sesión. |
-| `python/reproducir_mapa_calor.py` | Reproducción offline de predicciones 3×3. |
-| `docs/mapa_torres_fisicas.md` | Fuente de verdad MAC→posición física. |
+| `firmware/Comun/Paquete.h` | Contrato binario ESP-NOW v3. |
+| `firmware/Jugador`, `firmware/Torre`, `firmware/Gateway` | Emisión, medición RSSI y puente ESP-NOW → HTTP. |
+| `backend/src/index.ts`, `app.ts`, `gateway.ts` | Arranque, API, frontend compilado y descubrimiento UDP. |
+| `backend/src/gestor.ts` | Captura única, idempotencia, procesos y recuperación. |
+| `backend/src/preparacion.ts`, `entrenamiento.ts`, `mapas.ts` | Validación y ejecución de análisis Python. |
+| `shared/lecturas.ts` | Tipos de captura y Gateway compartidos con React. |
+| `frontend/src/App.tsx`, `Lecturas.tsx`, `Cuadricula.tsx` | Navegación y recolección manual/guiada. |
+| `frontend/src/PreparacionDatos.tsx`, `EntrenamientoModelos.tsx`, `MapasCalor.tsx` | Formularios y resultados de análisis. |
+| `python/receptor_gateway.py` | Receptor HTTP, cola y escritor CSV v3; descubrimiento propio en CLI. |
+| `python/analizar_captura.py` | Informe de integridad y diagnóstico con logs seriales. |
+| `python/preprocesar_calibracion.py`, `preparar_datos_web.py` | Vectores y zona explícita por archivo, sin recortes temporales. |
+| `python/entrenamiento_web.py`, `entrenar_knn.py`, `entrenar_random_forest.py` | Entrenamiento y opciones CLI de evaluación. |
+| `python/mapas_calor_web.py`, `reproducir_mapa_calor.py` | Predicciones, suavizado y mapas PNG. |
+| `python/mvp_config.py`, `docs/mapa_torres_fisicas.md` | Tabla MAC → característica y preset 3×3. |
+| `shared/cuadricula.ts`, `python/cuadricula.py` | Contrato y validación de geometría dinámica, 1–20 filas/columnas. |
 
-## Próxima campaña de datos
+## Decisiones para continuar
 
-1. Reconstruir la zona de 6 m × 2,5 m y la cuadrícula 3×3.
-2. Fijar las cuatro torres y confirmar la tabla MAC→posición.
-3. Iniciar Gateway, PC/receptor, torres y jugador; guardar un CSV nuevo por sesión.
-4. Capturar la nueva calibración siguiendo un protocolo definido antes de empezar.
-5. Validar integridad de CSV antes de entrenar.
-6. Entrenar el KNN únicamente con el nuevo dataset y guardar sus artefactos con un nombre nuevo.
-
-## Regla de continuidad
-
-No existen datasets, modelos ni resultados de pruebas anteriores en este checkpoint. No se deben reconstruir conclusiones históricas a partir de archivos eliminados. Cada nueva captura debe documentar su geometría, recorrido, duración, orientación y sesiones.
+- La MAC define la ubicación física; el ID dinámico no define la columna RSSI.
+- Se agrupa por archivo, sesión de Gateway, jugador, sesión del jugador y secuencia. Sólo se entrenan y predicen vectores completos de cuatro RSSI.
+- No hay etiquetado por bloques de 60 s ni exclusión automática de los primeros 6 s.
+- El preset es 3×3; el administrador cambia filas, columnas y posiciones en el frontend. La geometría acompaña la captura CSV, preparación y modelo hasta el mapa; se admiten hasta 20×20. Para archivos anteriores sin geometría se puede indicar en Preparación o Mapas. No se mezclan geometrías diferentes.
+- La PC almacena CSV/JSON/modelos en disco y el navegador conserva estado en `localStorage`.
+- Git no distribuye los artefactos experimentales. Puede haber datasets y modelos locales; compruebe su procedencia antes de usarlos o citar resultados.
+- Sin captura autorizada el Gateway descarta RSSI, mantiene vacíos cola/lote y atiende el registro de nodos. Sólo el Gateway necesita firmware nuevo para este control; ESP-NOW v3 de jugador/torres se mantiene.
+- Antes de una captura, siga [prueba_campo_captura.md](prueba_campo_captura.md), incluidos los límites de las colas entre archivos.

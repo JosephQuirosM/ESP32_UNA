@@ -19,11 +19,13 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from mvp_config import COLUMNAS_CARACTERISTICAS
+from cuadricula import cuadricula_de_filas, comprobar_zonas
 
 
 def leer_csv(ruta: Path):
     X, y = [], []
     total = 0
+    todas = []
     with ruta.open(newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         faltantes = {"zona", "completo", *COLUMNAS_CARACTERISTICAS} - set(reader.fieldnames or [])
@@ -31,6 +33,7 @@ def leer_csv(ruta: Path):
             raise ValueError("Elige un CSV etiquetado de Preparación de Datos. Faltan columnas: " + ", ".join(sorted(faltantes)))
         for numero, fila in enumerate(reader, 2):
             total += 1
+            todas.append(fila)
             if fila["completo"] == "0":
                 continue
             if fila["completo"] != "1":
@@ -45,7 +48,9 @@ def leer_csv(ruta: Path):
             X.append(vector); y.append(zona)
     if not X:
         raise ValueError("El CSV no contiene vectores completos para entrenar")
-    return X, y, {"filas": total, "vectores_completos": len(y), "vectores_incompletos": total-len(y),
+    cuadricula = cuadricula_de_filas(todas)
+    comprobar_zonas(y, cuadricula)
+    return X, y, {"cuadricula": cuadricula, "filas": total, "vectores_completos": len(y), "vectores_incompletos": total-len(y),
                   "zonas": sorted(set(y)), "por_zona": dict(sorted(Counter(y).items()))}
 
 
@@ -119,11 +124,12 @@ def entrenar(solicitud, carpeta):
         parametros = solicitud.get("parametros", {})
         modelo = crear_modelo(solicitud["algoritmo"], parametros, len(y))
         modelo.fit(X, y)
+        modelo.cuadricula_ = resumen["cuadricula"]
         metadata = {"algoritmo": solicitud["algoritmo"], "parametros": parametros,
             "entrada": solicitud["entrada"], "caracteristicas": list(COLUMNAS_CARACTERISTICAS),
             "resumen": resumen, "fechaUtc": datetime.now(timezone.utc).isoformat(),
             "sklearn": sklearn.__version__, "duracion_segundos": time.monotonic()-inicio,
-            "evaluacion": None}
+            "evaluacion": None, "cuadricula": resumen["cuadricula"]}
         joblib.dump(modelo, carpeta / "modelo.joblib")
         escribir_json(carpeta / "modelo.json", metadata)
         if solicitud.get("directorioSalida"):

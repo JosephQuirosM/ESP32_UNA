@@ -1,3 +1,4 @@
+import { GatewaySimulado } from "./gatewaySimulado.js";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -102,10 +103,12 @@ test("API local con el receptor Python real", async (t) => {
     host: "127.0.0.1",
     puertoHttp: await puertoLibre(),
     destinoUdp: "127.0.0.1",
-    puertoUdp: 9,
+    puertoUdp: await puertoLibre(),
     zonaHoraria: "America/Costa_Rica",
   };
   const gestor = new GestorLecturas(configuracion);
+  const gateway = new GatewaySimulado();
+  await gateway.iniciar(configuracion.puertoUdp);
   const servidor = crearApp(gestor).listen(0, "127.0.0.1");
   await new Promise<void>((resolver) => servidor.once("listening", resolver));
   const url = `http://127.0.0.1:${(servidor.address() as { port: number }).port}`;
@@ -122,7 +125,7 @@ test("API local con el receptor Python real", async (t) => {
       `http://127.0.0.1:${configuracion.puertoHttp}/v1/registros`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Heatmap-Captura": gestor.actual()!.id },
         body: JSON.stringify(
           Array.from({ length: cuantos }, (_, i) => ({
             ...REGISTRO,
@@ -136,6 +139,7 @@ test("API local con el receptor Python real", async (t) => {
   }
   t.after(async () => {
     await gestor.cerrar();
+    await gateway.cerrar();
     await new Promise<void>((resolver) => servidor.close(() => resolver()));
     rmSync(directorio, { recursive: true, force: true });
   });
@@ -296,6 +300,9 @@ test("El receptor termina y se recupera después de interrumpir el backend", asy
   const directorio = mkdtempSync(join(tmpdir(), "esp32-recuperacion-"));
   const puertoApi = await puertoLibre(),
     puertoHttp = await puertoLibre();
+  const puertoUdp = await puertoLibre();
+  const gateway = new GatewaySimulado();
+  await gateway.iniciar(puertoUdp);
   const url = `http://127.0.0.1:${puertoApi}`;
   let backend: ChildProcess | null = null;
   let id: string | null = null;
@@ -310,7 +317,7 @@ test("El receptor termina y se recupera después de interrumpir el backend", asy
         RECEPTOR_HOST: "127.0.0.1",
         RECEPTOR_PUERTO_HTTP: String(puertoHttp),
         RECEPTOR_DESTINO_UDP: "127.0.0.1",
-        RECEPTOR_PUERTO_UDP: "9",
+        RECEPTOR_PUERTO_UDP: String(puertoUdp),
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -343,6 +350,7 @@ test("El receptor termina y se recupera después de interrumpir el backend", asy
         backend!.once("exit", () => resolver()),
       );
     }
+    await gateway.cerrar();
     rmSync(directorio, { recursive: true, force: true });
   });
   levantar();
@@ -365,12 +373,13 @@ test("El receptor termina y se recupera después de interrumpir el backend", asy
     (
       await fetch(`http://127.0.0.1:${puertoHttp}/v1/registros`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Heatmap-Captura": id! },
         body: JSON.stringify([REGISTRO]),
       })
     ).status,
     202,
   );
+  const revisionAntes = gateway.revision;
   backend!.kill("SIGKILL");
   await new Promise<void>((resolver) =>
     backend!.once("exit", () => resolver()),
@@ -378,6 +387,7 @@ test("El receptor termina y se recupera después de interrumpir el backend", asy
   // El navegador tampoco envía otra instrucción mientras el backend está detenido.
   levantar();
   await disponible();
+  assert.equal(gateway.revision, revisionAntes);
   const resultado = await esperar(
     async () =>
       (await (await fetch(`${url}/api/lecturas/${id}`)).json()) as Captura,

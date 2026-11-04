@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reproduce predicciones del CSV de calibración y genera un mapa 3×3."""
+"""Reproduce predicciones del CSV de calibración y genera un mapa con cuadrícula configurable."""
 
 from __future__ import annotations
 
@@ -16,7 +16,9 @@ os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "esp32_u
 import matplotlib.pyplot as plt
 import numpy as np
 
-from mvp_config import COLUMNAS_CARACTERISTICAS, COORDENADAS_ZONA
+from mvp_config import COLUMNAS_CARACTERISTICAS
+from cuadricula import (crear_cuadricula, validar_cuadricula, coordenadas, comprobar_zonas,
+                        resolver_cuadricula, agregar_argumentos, desde_argumentos)
 
 
 def cargar_completas(ruta: Path) -> list[dict[str, str]]:
@@ -49,28 +51,38 @@ def escribir_predicciones(ruta: Path, filas: list[dict[str, str]], predichas: li
             })
 
 
-def generar_mapa(ruta: Path, conteos: Counter[int], total: int, titulo: str = "Mapa de calor: predicciones suavizadas") -> None:
-    matriz = np.zeros((3, 3), dtype=float)
-    for zona, (columna, fila) in COORDENADAS_ZONA.items():
+def generar_mapa(ruta: Path, conteos: Counter[int], total: int,
+                 titulo: str = "Mapa de calor: predicciones suavizadas", cuadricula=None) -> None:
+    """Dibuja cada zona en su celda, incluyendo zonas sin predicciones."""
+    cuadricula = validar_cuadricula(cuadricula) if cuadricula is not None else crear_cuadricula()
+    comprobar_zonas(list(conteos), cuadricula)
+    filas, columnas = cuadricula["filas"], cuadricula["columnas"]
+    posiciones = coordenadas(cuadricula)
+    matriz = np.zeros((filas, columnas), dtype=float)
+    for zona, (columna, fila) in posiciones.items():
         matriz[fila, columna] = conteos[zona]
-    figura, eje = plt.subplots(figsize=(7, 4.5), constrained_layout=True)
-    imagen = eje.imshow(matriz, cmap="YlOrRd", vmin=0, vmax=max(1, float(matriz.max())))
-    for zona, (columna, fila) in COORDENADAS_ZONA.items():
-        conteo = conteos[zona]
-        porcentaje = 0.0 if total == 0 else 100.0 * conteo / total
-        eje.text(columna, fila, f"Zona {zona}\n{conteo} ({porcentaje:.1f}%)", ha="center", va="center",
-                 color="white" if conteo > 0 and conteo >= 0.65 * matriz.max() else "#0f1c2d")
-    eje.set_title(titulo)
-    eje.set_xticks(range(3), ["Oeste", "Centro", "Este"])
-    eje.set_yticks(range(3), ["Norte", "Centro", "Sur"])
-    figura.colorbar(imagen, ax=eje, label="Vectores predichos")
-    ruta.parent.mkdir(parents=True, exist_ok=True)
-    figura.savefig(ruta, dpi=160)
-    plt.close(figura)
+    figura, eje = plt.subplots(figsize=(max(5, columnas * 1.5 + 1), max(3.5, filas * 1.1 + 1)), constrained_layout=True)
+    try:
+        imagen = eje.imshow(matriz, cmap="YlOrRd", vmin=0, vmax=max(1, float(matriz.max())))
+        for zona, (columna, fila) in posiciones.items():
+            conteo = conteos[zona]
+            porcentaje = 0.0 if total == 0 else 100.0 * conteo / total
+            eje.text(columna, fila, f"Zona {zona}\n{conteo} ({porcentaje:.1f}%)", ha="center", va="center",
+                     color="white" if conteo > 0 and conteo >= 0.65 * matriz.max() else "#0f1c2d")
+        eje.set_title(titulo)
+        eje.set_xticks(range(columnas), [str(i + 1) for i in range(columnas)])
+        eje.set_yticks(range(filas), [str(i + 1) for i in range(filas)])
+        eje.set_xlabel("Columna"); eje.set_ylabel("Fila")
+        figura.colorbar(imagen, ax=eje, label="Vectores predichos")
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        figura.savefig(ruta, dpi=160)
+    finally:
+        plt.close(figura)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    agregar_argumentos(parser)
     parser.add_argument("entrada", type=Path, help="CSV procesado")
     parser.add_argument("--modelo", type=Path, required=True, help="Modelo .joblib entrenado")
     parser.add_argument("--predicciones", type=Path, required=True, help="CSV de reproducción")
@@ -84,13 +96,15 @@ def main() -> None:
         raise ValueError("no hay vectores completos para reproducir")
     X = [[float(fila[columna]) for columna in COLUMNAS_CARACTERISTICAS] for fila in filas]
     modelo = joblib.load(args.modelo)
+    cuadricula = resolver_cuadricula(modelo, desde_argumentos(args), filas)
     predichas = [int(valor) for valor in modelo.predict(X).tolist()]
+    comprobar_zonas(predichas, cuadricula)
     probabilidades = modelo.predict_proba(X)
     confianza = [float(max(fila)) for fila in probabilidades]
     suaves = suavizar(predichas, args.ventana)
     escribir_predicciones(args.predicciones, filas, predichas, suaves, confianza)
     conteos = Counter(suaves)
-    generar_mapa(args.mapa, conteos, len(suaves))
+    generar_mapa(args.mapa, conteos, len(suaves), cuadricula=cuadricula)
     print(f"vectores={len(suaves)}; conteos_zona={dict(sorted(conteos.items()))}")
 
 

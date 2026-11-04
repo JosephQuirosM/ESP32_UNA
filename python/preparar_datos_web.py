@@ -8,10 +8,11 @@ import json
 import sys
 from pathlib import Path
 
+from cuadricula import cuadricula_de_filas, comprobar_zonas
 from preprocesar_calibracion import COLUMNAS_REQUERIDAS, construir_muestras, guardar_muestras
 
 
-def preparar(archivos: list[dict], salida: Path) -> dict:
+def preparar(archivos: list[dict], salida: Path, cuadricula=None) -> dict:
     if not archivos:
         raise ValueError("Selecciona al menos un CSV")
     muestras = []
@@ -41,16 +42,22 @@ def preparar(archivos: list[dict], salida: Path) -> dict:
             resumen[clave] = resumen.get(clave, 0) + valor
     if not resumen.get("vectores_completos"):
         raise ValueError("No hay vectores completos de las cuatro torres en los archivos seleccionados")
+    cuadricula = cuadricula_de_filas(muestras, cuadricula)
+    comprobar_zonas([a["zona"] for a in archivos], cuadricula)
+    if cuadricula:
+        for muestra in muestras:
+            muestra["cuadricula"] = json.dumps(cuadricula, separators=(",", ":"))
     guardar_muestras(salida, muestras)
     resultado = {"resumen": {"archivos_entrada": len(archivos), **resumen}, "archivos": detalle,
-                 "zonas": sorted({a["zona"] for a in archivos})}
+                 "zonas": sorted({a["zona"] for a in archivos}), "cuadricula": cuadricula}
     salida.with_suffix(".json").write_text(json.dumps(resultado, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return resultado
 
 
 if __name__ == "__main__":
     try:
-        print(json.dumps(preparar(json.load(sys.stdin)["archivos"], Path(sys.argv[1])), ensure_ascii=False))
+        carga = json.load(sys.stdin)
+        print(json.dumps(preparar(carga["archivos"], Path(sys.argv[1]), carga.get("cuadricula")), ensure_ascii=False))
     except (ValueError, KeyError, TypeError) as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)

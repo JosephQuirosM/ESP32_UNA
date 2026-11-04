@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import uuid
 from http.client import HTTPConnection
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from receptor_gateway import (  # noqa: E402
     validar_registro,
 )
 
+
+CAPTURA_ID = str(uuid.uuid4())
 
 REGISTRO = {
     "sesion_gateway": 456,
@@ -56,7 +59,8 @@ class PruebasReceptorGateway(unittest.TestCase):
             ruta = Path(temporal) / "lecturas.csv"
             escritor = EscritorCsv(ruta)
             escritor.iniciar()
-            servidor = ServidorRegistros(("127.0.0.1", 0), escritor)
+            servidor = ServidorRegistros(("127.0.0.1", 0), escritor, CAPTURA_ID)
+            servidor.admitiendo.set()
             hilo = threading.Thread(target=servidor.serve_forever, daemon=True)
             hilo.start()
             conexion = HTTPConnection("127.0.0.1", servidor.server_address[1])
@@ -66,7 +70,7 @@ class PruebasReceptorGateway(unittest.TestCase):
                 body=json.dumps(
                     [REGISTRO, dict(REGISTRO, secuencia=43, secuencia_torre_tx=42)]
                 ),
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "X-Heatmap-Captura": CAPTURA_ID},
             )
             self.assertEqual(conexion.getresponse().status, 202)
             conexion.close()
@@ -85,7 +89,8 @@ class PruebasReceptorGateway(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporal:
             escritor = EscritorCsv(Path(temporal) / "lecturas.csv")
             escritor.iniciar()
-            servidor = ServidorRegistros(("127.0.0.1", 0), escritor)
+            servidor = ServidorRegistros(("127.0.0.1", 0), escritor, CAPTURA_ID)
+            servidor.admitiendo.set()
             hilo = threading.Thread(target=servidor.serve_forever, daemon=True)
             hilo.start()
             conexion = HTTPConnection("127.0.0.1", servidor.server_address[1])
@@ -93,7 +98,7 @@ class PruebasReceptorGateway(unittest.TestCase):
                 "POST",
                 "/v1/registros",
                 body=json.dumps([REGISTRO] * (MAXIMO_REGISTROS_LOTE + 1)),
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "X-Heatmap-Captura": CAPTURA_ID},
             )
             self.assertEqual(conexion.getresponse().status, 400)
             conexion.close()

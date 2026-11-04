@@ -8,7 +8,7 @@ import { ErrorPeticion, GestorLecturas } from "./gestor.js";
 import type { DescubridorGateway } from "./gateway.js";
 
 /** Expone el control local de capturas y el frontend compilado desde el mismo origen. */
-export function crearApp(gestor: GestorLecturas, gateway?: DescubridorGateway) {
+export function crearApp(gestor: GestorLecturas, gateway: DescubridorGateway = gestor.gateway) {
   const app = express();
   app.disable("x-powered-by");
   app.use("/api/mapas", rutasMapas(gestor.configuracion));

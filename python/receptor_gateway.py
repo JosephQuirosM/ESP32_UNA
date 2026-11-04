@@ -14,11 +14,15 @@ import socket
 import threading
 import sys
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+
+from cuadricula import validar_cuadricula
+from control_gateway import ControlGatewayUdp
 
 MAXIMO_UINT32 = 4_294_967_295
 MAXIMO_REGISTROS_LOTE = 8
@@ -80,9 +84,10 @@ def validar_registro(registro: Any) -> dict[str, int | str]:
 class EscritorCsv:
     """Aísla el CSV con una cola acotada y conserva cada lote como una unidad."""
 
-    def __init__(self, ruta: Path, capacidad_cola: int = CAPACIDAD_COLA_CSV, nuevo: bool = False) -> None:
+    def __init__(self, ruta: Path, capacidad_cola: int = CAPACIDAD_COLA_CSV, nuevo: bool = False, cuadricula: dict | None = None) -> None:
         if capacidad_cola <= 0:
             raise ValueError("capacidad_cola debe ser positiva")
+        self._cuadricula = validar_cuadricula(cuadricula) if cuadricula is not None else None
         self._ruta = ruta
         self._nuevo = nuevo
         self._listo = threading.Event()
@@ -123,6 +128,8 @@ class EscritorCsv:
                 .replace("+00:00", "Z")
             }
             fila.update(registro)
+            if self._cuadricula:
+                fila["cuadricula"] = json.dumps(self._cuadricula, separators=(",", ":"))
             filas.append(fila)
         try:
             self._cola.put_nowait(filas)
@@ -149,7 +156,7 @@ class EscritorCsv:
         try:
             existe = self._ruta.exists() and self._ruta.stat().st_size > 0
             with self._ruta.open("x" if self._nuevo else "a", newline="", encoding="utf-8") as archivo:
-                escritor = csv.DictWriter(archivo, fieldnames=COLUMNAS_CSV)
+                escritor = csv.DictWriter(archivo, fieldnames=COLUMNAS_CSV + (["cuadricula"] if self._cuadricula else []))
                 if not existe:
                     escritor.writeheader()
                 archivo.flush()
@@ -175,10 +182,15 @@ class ServidorRegistros(ThreadingHTTPServer):
 
     daemon_threads = False
 
-    def __init__(self, direccion: tuple[str, int], escritor: EscritorCsv) -> None:
+    def __init__(self, direccion: tuple[str, int], escritor: EscritorCsv, captura_id: str) -> None:
+        if not isinstance(captura_id, str) or str(uuid.UUID(captura_id, version=4)) != captura_id:
+            raise ValueError("El receptor requiere un UUID v4 de captura")
         super().__init__(direccion, ManejadorRegistros)
         self.escritor = escritor
         self.deteniendo = threading.Event()
+        self.captura_id = captura_id
+        self.admitiendo = threading.Event()
+        self.mutex_admision = threading.Lock()
 
 
 class ManejadorRegistros(BaseHTTPRequestHandler):
@@ -197,6 +209,9 @@ class ManejadorRegistros(BaseHTTPRequestHandler):
         if self.path != "/v1/registros":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
+        if self.headers.get("X-Heatmap-Captura") != self.server.captura_id:
+            self.send_error(HTTPStatus.CONFLICT, "el lote pertenece a otra captura")
+            return
         try:
             longitud = int(self.headers.get("Content-Length", "0"))
             if longitud <= 0 or longitud > 32_768:
@@ -207,10 +222,11 @@ class ManejadorRegistros(BaseHTTPRequestHandler):
             if len(carga) > MAXIMO_REGISTROS_LOTE:
                 raise ValueError(f"el lote no puede superar {MAXIMO_REGISTROS_LOTE} registros")
             registros = [validar_registro(registro) for registro in carga]
-            if self.server.deteniendo.is_set():
-                self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "el CSV se está cerrando")
-                return
-            aceptado = self.server.escritor.encolar(registros)
+            with self.server.mutex_admision:
+                if self.server.deteniendo.is_set() or not self.server.admitiendo.is_set():
+                    self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "la captura no admite registros")
+                    return
+                aceptado = self.server.escritor.encolar(registros)
         except (RuntimeError, ValueError, json.JSONDecodeError) as error:
             self.send_error(HTTPStatus.BAD_REQUEST, str(error))
             return
@@ -226,89 +242,12 @@ class ManejadorRegistros(BaseHTTPRequestHandler):
         print(f"HTTP {self.client_address[0]} - {formato % argumentos}", file=sys.stderr, flush=True)
 
 
-class AnunciadorUdp:
-    """Publica la ubicación del servidor para que el Gateway conozca la IP DHCP de la PC."""
-
-    def __init__(self, destino: str, puerto_udp: int, puerto_http: int) -> None:
-        self._destino = destino
-        self._puerto_udp = puerto_udp
-        self._puerto_http = puerto_http
-        self._detener = threading.Event()
-        self._hilo = threading.Thread(target=self._anunciar, name="anunciador-udp", daemon=True)
-
-    def iniciar(self) -> None:
-        self._hilo.start()
-
-    def cerrar(self) -> None:
-        self._detener.set()
-        self._hilo.join(timeout=3)
-
-    def _anunciar(self) -> None:
-        mensaje = f"HEATMAP_PC_V1 {self._puerto_http}".encode("ascii")
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as cliente:
-            cliente.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            while not self._detener.is_set():
-                try:
-                    cliente.sendto(mensaje, (self._destino, self._puerto_udp))
-                except OSError as error:
-                    print(f"Aviso: no se pudo anunciar UDP: {error}", file=sys.stderr, flush=True)
-                self._detener.wait(3)
-
-
-class EscuchaGatewayUdp:
-    """Alternativa por CLI: responde a los anuncios del ESP32, sin emitir broadcast."""
-
-    def __init__(self, puerto_udp: int, puerto_http: int) -> None:
-        self._puerto_http = puerto_http
-        self._detener = threading.Event()
-        self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            self._socket.bind(("0.0.0.0", puerto_udp))
-            self._socket.settimeout(0.5)
-        except OSError:
-            self._socket.close()
-            raise
-        self._hilo = threading.Thread(target=self._escuchar, name="descubrimiento-gateway", daemon=True)
-
-    def iniciar(self) -> None:
-        self._hilo.start()
-
-    def cerrar(self) -> None:
-        self._detener.set()
-        self._socket.close()
-        if self._hilo.ident is not None:
-            self._hilo.join(timeout=3)
-
-    def _escuchar(self) -> None:
-        prefijo = b"HEATMAP_GATEWAY_V1 "
-        while not self._detener.is_set():
-            try:
-                mensaje, origen = self._socket.recvfrom(1025)
-                if len(mensaje) > 1024 or not mensaje.startswith(prefijo):
-                    continue
-                anuncio = json.loads(mensaje[len(prefijo):])
-                if not isinstance(anuncio, dict):
-                    continue
-                sesion = anuncio.get("sesion")
-                mac = anuncio.get("mac")
-                if type(sesion) is not int or not 0 < sesion <= MAXIMO_UINT32:
-                    continue
-                if not isinstance(mac, str) or not re.fullmatch(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", mac):
-                    continue
-                respuesta = f"HEATMAP_PC_V2 {sesion} {self._puerto_http}".encode("ascii")
-                self._socket.sendto(respuesta, origen)
-            except socket.timeout:
-                continue
-            except (ValueError, UnicodeError):
-                continue
-            except OSError as error:
-                if not self._detener.is_set():
-                    print(f"Aviso: fallo UDP del Gateway: {error}", file=sys.stderr, flush=True)
-                    self._detener.wait(0.5)
-
-
 def argumentos() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Registra lecturas RSSI recibidas desde el Gateway.")
+    parser.add_argument("--captura-id", default=str(uuid.uuid4()), help="UUID de correlación HTTP de esta captura")
+    parser.add_argument("--esperar-inicio", action="store_true", help="Prepara el receptor; el backend inicia el plazo tras el ACK")
+    parser.add_argument("--iniciar-archivo", type=Path, help="Señal persistente de inicio tras confirmar el Gateway")
+    parser.add_argument("--cuadricula-json", help="Geometría de la captura guiada para conservar en el CSV")
     parser.add_argument("--archivo", type=Path, default=Path("data/raw/lecturas_mvp.csv"))
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--puerto-http", type=int, default=8080)
@@ -318,13 +257,21 @@ def argumentos() -> argparse.Namespace:
     descubrimiento.add_argument("--sin-anuncio-udp", action="store_true",
                         help="Delega el descubrimiento del Gateway al backend, sin anuncios desde Python")
     descubrimiento.add_argument("--anuncio-udp-legacy", action="store_true",
-                                help="Usa el anuncio desde la PC para firmware anterior")
-    parser.add_argument("--duracion", type=float, help="Segundos de captura desde que el receptor esté listo")
+                                help="Obsoleto: el modo legacy se rechaza porque no delimita capturas")
+    parser.add_argument("--duracion", type=float, help="Segundos de captura desde la confirmación del Gateway")
     parser.add_argument("--control-json", action="store_true", help="Publica estado JSON y acepta detener por entrada estándar")
     parser.add_argument("--nuevo", action="store_true", help="Crea un CSV nuevo sin anexar ni sobrescribir")
     parser.add_argument("--estado-json", type=Path, help="Archivo de estado para recuperar la captura")
     parser.add_argument("--detener-archivo", type=Path, help="Archivo de señal de cierre después de reiniciar el backend")
     args = parser.parse_args()
+    try:
+        if str(uuid.UUID(args.captura_id, version=4)) != args.captura_id: raise ValueError()
+    except ValueError:
+        parser.error("--captura-id debe ser un UUID v4 válido")
+    if args.anuncio_udp_legacy:
+        parser.error("El control de capturas requiere Gateway actualizado; ya no se permite anuncio UDP legacy")
+    if args.sin_anuncio_udp and not args.esperar_inicio:
+        parser.error("--sin-anuncio-udp requiere --esperar-inicio para recibir autorización del backend")
     if args.duracion is not None and (not 0 < args.duracion <= 86400):
         parser.error("la duración debe ser positiva y no superar 86400 segundos")
     return args
@@ -333,8 +280,9 @@ def argumentos() -> argparse.Namespace:
 def main() -> int:
     """Ejecuta una captura con plazo propio y cierre ordenado independiente del navegador."""
     args = argumentos()
-    escritor = EscritorCsv(args.archivo, nuevo=args.nuevo)
+    escritor = EscritorCsv(args.archivo, nuevo=args.nuevo, cuadricula=validar_cuadricula(args.cuadricula_json) if args.cuadricula_json else None)
     detener = threading.Event()
+    iniciar = threading.Event()
     motivo = "detenida"
     estado: dict[str, Any] = {
         "estado": "iniciando", "pid": os.getpid(), "filasEscritas": 0,
@@ -368,35 +316,58 @@ def main() -> int:
             if linea.strip() == "detener":
                 detener.set()
                 return
+            if linea.strip() == "iniciar" and args.esperar_inicio:
+                iniciar.set()
 
     signal.signal(signal.SIGINT, solicitar_cierre)
     signal.signal(signal.SIGTERM, solicitar_cierre)
     servidor: ServidorRegistros | None = None
-    anunciador: AnunciadorUdp | EscuchaGatewayUdp | None = None
+    anunciador: ControlGatewayUdp | None = None
     hilo_servidor: threading.Thread | None = None
     fallo: Exception | None = None
     try:
-        servidor = ServidorRegistros((args.host, args.puerto_http), escritor)
+        servidor = ServidorRegistros((args.host, args.puerto_http), escritor, args.captura_id)
         escritor.iniciar()
-        if not args.sin_anuncio_udp:
-            anunciador = (AnunciadorUdp(args.destino_udp, args.puerto_udp, args.puerto_http)
-                          if args.anuncio_udp_legacy else
-                          EscuchaGatewayUdp(args.puerto_udp, args.puerto_http))
-            anunciador.iniciar()
         hilo_servidor = threading.Thread(target=servidor.serve_forever, name="servidor-http", daemon=True)
         hilo_servidor.start()
-        inicio = datetime.now(timezone.utc)
-        limite = time.monotonic() + args.duracion if args.duracion is not None else None
-        fin_previsto = inicio + timedelta(seconds=args.duracion) if args.duracion is not None else None
-        publicar("grabando", inicioUtc=inicio.isoformat(),
-                 finPrevistoUtc=fin_previsto.isoformat() if fin_previsto else None)
+        publicar("iniciando", preparado=True, inicioUtc=None, finPrevistoUtc=None)
         if args.control_json:
             threading.Thread(target=leer_control, name="control-entrada", daemon=True).start()
-        else:
-            print(f"Escuchando HTTP en {args.host}:{args.puerto_http}; CSV: {args.archivo}", flush=True)
+        if not args.sin_anuncio_udp:
+            anunciador = ControlGatewayUdp(args.puerto_udp, args.puerto_http, args.captura_id,
+                                           args.archivo.parent / ".lecturas/.control-gateway.json")
+            anunciador.iniciar()
+        plazo_inicio = time.monotonic() + 10
+        while not iniciar.is_set() and not detener.is_set():
+            escritor.comprobar_error()
+            if anunciador and anunciador.fallo: raise RuntimeError(anunciador.fallo)
+            if args.detener_archivo and args.detener_archivo.exists():
+                detener.set()
+                break
+            if args.iniciar_archivo and args.iniciar_archivo.exists():
+                orden = json.loads(args.iniciar_archivo.read_text(encoding="utf-8"))
+                if orden.get("capturaId") == args.captura_id: iniciar.set()
+            if anunciador:
+                if anunciador.fallo: raise RuntimeError(anunciador.fallo)
+                if anunciador.confirmado.is_set(): iniciar.set()
+            if time.monotonic() >= plazo_inicio and not iniciar.is_set():
+                raise RuntimeError("El Gateway no confirmó la captura en 10 segundos. Revisa su conexión e inténtalo otra vez.")
+            detener.wait(0.02)
+        limite = None
+        if not detener.is_set():
+            inicio = datetime.now(timezone.utc)
+            limite = time.monotonic() + args.duracion if args.duracion is not None else None
+            fin_previsto = inicio + timedelta(seconds=args.duracion) if args.duracion is not None else None
+            with servidor.mutex_admision:
+                servidor.admitiendo.set()
+            publicar("grabando", inicioUtc=inicio.isoformat(),
+                     finPrevistoUtc=fin_previsto.isoformat() if fin_previsto else None)
+            if not args.control_json:
+                print(f"Grabando HTTP en {args.host}:{args.puerto_http}; CSV: {args.archivo}", flush=True)
         ultimo_conteo = 0
         while not detener.wait(0.1):
             escritor.comprobar_error()
+            if anunciador and anunciador.fallo: raise RuntimeError(anunciador.fallo)
             if args.detener_archivo and args.detener_archivo.exists():
                 detener.set()
                 break
@@ -410,16 +381,18 @@ def main() -> int:
         fallo = error
     finally:
         if servidor:
-            servidor.deteniendo.set()
+            with servidor.mutex_admision:
+                servidor.deteniendo.set()
+                servidor.admitiendo.clear()
         try:
             publicar("cerrando")
         except Exception as error:
             fallo = fallo or error
         # Cada recurso se cierra aunque falle el cierre de otro.
         for cerrar in [
+            anunciador.cerrar if anunciador else None,
             servidor.shutdown if servidor and hilo_servidor else None,
             servidor.server_close if servidor else None,
-            anunciador.cerrar if anunciador else None,
             escritor.cerrar,
         ]:
             if cerrar:

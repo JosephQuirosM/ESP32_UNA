@@ -1,9 +1,11 @@
+import type { GeometriaCuadricula } from "./cuadricula.js";
 export type EstadoCaptura =
   "iniciando" | "grabando" | "cerrando" | "completada" | "detenida" | "error";
 export interface SolicitudLectura {
   solicitudId: string;
   nombreArchivo: string;
   duracionSegundos: number;
+  cuadricula?: GeometriaCuadricula;
 }
 export interface Captura extends SolicitudLectura {
   id: string;
@@ -17,6 +19,9 @@ export interface Captura extends SolicitudLectura {
   ultimaRecepcionUtc: string | null;
   error: string | null;
   pid: number | null;
+  preparado?: boolean;
+  falloControl?: string;
+  gatewayConfirmado?: boolean;
 }
 export interface EstadoServidor {
   actual: Captura | null;
@@ -40,6 +45,11 @@ export interface GatewayDetectado {
   pcConfirmada: boolean;
   ultimaVezUtc: string;
   conectado: boolean;
+  controlCaptura?: boolean;
+  revisionControl?: number;
+  capturando?: boolean;
+  descartesInactivos?: number;
+  registrosPurgados?: number;
 }
 export interface EstadoGateway {
   escuchando: boolean;

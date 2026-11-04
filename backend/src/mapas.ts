@@ -1,3 +1,4 @@
+import { validarCuadricula, type GeometriaCuadricula } from "../../shared/cuadricula.js";
 import { Router, json } from "express";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -7,7 +8,7 @@ import { join, resolve, isAbsolute, basename } from "node:path";
 import { seleccionarArchivosLocales } from "./selectorCarpeta.js";
 import { ErrorPeticion, type Configuracion } from "./gestor.js";
 
-type Mapa = { indice: number; rutaImagen: string; rutaPredicciones: string; rutaResumen: string; [clave: string]: unknown };
+type Mapa = { indice: number; rutaImagen: string | null; rutaLecturas?: string; tieneMapa?: boolean; rutaPredicciones: string; rutaResumen: string; [clave: string]: unknown };
 export function rutasMapas(config: Configuracion) {
   const router = Router();
   const base = join(config.raiz, "data/processed/mapas_web");
@@ -45,6 +46,11 @@ export function rutasMapas(config: Configuracion) {
     const anterior=ocupado;
     if (anterior) { try { const previo=await estadoTrabajo(anterior); if (["completado","error"].includes(previo.estado) && ocupado===anterior) ocupado=null; } catch { /* Sigue iniciando. */ } }
     if (ocupado) throw new ErrorPeticion(409,"Hay una generación de mapas en curso.");
+    let cuadricula: GeometriaCuadricula | undefined;
+    if (req.body?.cuadricula !== undefined) {
+      try { cuadricula = validarCuadricula(req.body.cuadricula); }
+      catch (e) { throw new ErrorPeticion(400, (e as Error).message); }
+    }
     const nombre=req.body?.nombre, ventana=req.body?.ventana;
     if (typeof nombre!=="string" || !/^[\p{L}\p{N}][\p{L}\p{N} _-]{0,79}$/u.test(nombre)) throw new ErrorPeticion(400,"El nombre debe tener entre 1 y 80 letras, números, espacios o guiones.");
     if (!Number.isSafeInteger(ventana) || ventana<1 || ventana>1000) throw new ErrorPeticion(400,"El suavizado debe ser un entero entre 1 y 1000.");
@@ -61,7 +67,7 @@ export function rutasMapas(config: Configuracion) {
     const id=randomUUID(), carpeta=join(base,id); ocupado=id;
     try {
       await mkdir(carpeta,{recursive:true});
-      await writeFile(join(carpeta,"solicitud.json"),JSON.stringify({entradas,modelo,nombre,directorioSalida,ventana}));
+      await writeFile(join(carpeta,"solicitud.json"),JSON.stringify({entradas,modelo,nombre,directorioSalida,ventana,cuadricula}));
       await writeFile(join(carpeta,"estado.json"),JSON.stringify({estado:"pendiente",mapas:[],procesados:0,total:entradas.length}));
       const child=spawn(config.python,["-B",join(config.raiz,"python/mapas_calor_web.py"),join(carpeta,"solicitud.json")],{cwd:config.raiz,stdio:["ignore","ignore","pipe"],env:{...process.env,MPLBACKEND:"Agg"}});
       let stderr=""; child.stderr.on("data",c=>{stderr=(stderr+c).slice(-4000);});
@@ -78,7 +84,17 @@ export function rutasMapas(config: Configuracion) {
     const carpeta=join(base,req.params.id);
     if(["pendiente","generando"].includes(estado.estado)) { try{ const {pid}=JSON.parse(await readFile(join(carpeta,"pid.json"),"utf8"));process.kill(pid,0); }catch{estado={...estado,estado:"error",error:"El proceso de generación ya no está disponible."};} }
     const solicitud=JSON.parse(await readFile(join(carpeta,"solicitud.json"),"utf8"));
-    res.json({id:req.params.id,...solicitud,...estado,mapas:estado.mapas.map((m:Mapa)=>({...m,imagen:`/api/mapas/${req.params.id}/archivo/${m.indice}/imagen`,descarga:`/api/mapas/${req.params.id}/archivo/${m.indice}/png`,predicciones:`/api/mapas/${req.params.id}/archivo/${m.indice}/csv`,resumenDescarga:`/api/mapas/${req.params.id}/archivo/${m.indice}/json`}))});
+    res.json({id:req.params.id,...solicitud,...estado,
+      resumenGeneralCsv:estado.rutaResumenGeneralCsv ? `/api/mapas/${req.params.id}/resumen/csv` : undefined,
+      resumenGeneralJson:estado.rutaResumenGeneralJson ? `/api/mapas/${req.params.id}/resumen/json` : undefined,
+      mapas:estado.mapas.map((m:Mapa)=>({...m,imagen:m.tieneMapa===false ? null : `/api/mapas/${req.params.id}/archivo/${m.indice}/imagen`,descarga:m.tieneMapa===false ? null : `/api/mapas/${req.params.id}/archivo/${m.indice}/png`,lecturas:m.rutaLecturas ? `/api/mapas/${req.params.id}/archivo/${m.indice}/lecturas` : undefined,predicciones:`/api/mapas/${req.params.id}/archivo/${m.indice}/csv`,resumenDescarga:`/api/mapas/${req.params.id}/archivo/${m.indice}/json`}))});
+  });
+  router.get("/:id/resumen/:tipo",async(req,res)=>{
+    const estado=await estadoTrabajo(req.params.id);
+    const tipo=req.params.tipo;
+    const destino=tipo==="csv"?estado.rutaResumenGeneralCsv:tipo==="json"?estado.rutaResumenGeneralJson:null;
+    if(!destino)throw new ErrorPeticion(404,"Resumen no encontrado.");
+    res.download(join(base,req.params.id,`resumen_general.${tipo}`),basename(destino));
   });
   router.get("/:id/archivo/:indice/:tipo",async(req,res)=>{
     const estado=await estadoTrabajo(req.params.id);
@@ -86,11 +102,13 @@ export function rutasMapas(config: Configuracion) {
     const mapa=estado.mapas.find((m:Mapa)=>m.indice===Number(req.params.indice));
     if(!mapa)throw new ErrorPeticion(404,"Mapa no encontrado.");
     const tipo=req.params.tipo;
-    const extension=tipo==="png"||tipo==="imagen"?"png":tipo==="csv"?"csv":tipo==="json"?"json":null;
+    if ((tipo==="png" || tipo==="imagen") && mapa.tieneMapa===false) throw new ErrorPeticion(404,"Este jugador no tiene vectores completos para generar el mapa.");
+    if (tipo==="lecturas" && !mapa.rutaLecturas) throw new ErrorPeticion(404,"Lecturas no disponibles para este resultado anterior.");
+    const extension=tipo==="png"||tipo==="imagen"?"png":(tipo==="csv" || tipo==="lecturas")?"csv":tipo==="json"?"json":null;
     if(!extension)throw new ErrorPeticion(404,"Archivo no encontrado.");
-    const path=join(base,req.params.id,`mapa_${mapa.indice}.${extension}`);
+    const path=join(base,req.params.id,`mapa_${mapa.indice}${tipo==="lecturas"?"_lecturas":""}.${extension}`);
     if(tipo==="imagen")res.sendFile(path);
-    else res.download(path,basename(tipo==="png"?mapa.rutaImagen:tipo==="csv"?mapa.rutaPredicciones:mapa.rutaResumen));
+    else res.download(path,basename(tipo==="png"?mapa.rutaImagen!:tipo==="lecturas"?mapa.rutaLecturas!:tipo==="csv"?mapa.rutaPredicciones:mapa.rutaResumen));
   });
   return router;
 }

@@ -1,9 +1,11 @@
+import ConfigurarCuadricula from "./ConfigurarCuadricula";
+import { generarZonas, type GeometriaCuadricula } from "./cuadricula";
 import { useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Download, FileText, FolderOpen, LoaderCircle, Save, Trash2, UploadCloud } from "lucide-react";
 
 type Archivo = { id: string; file: File; zona: string };
 type Resultado = {
-  rutaSalida: string; id: string; nombre: string; descarga: string; resumenDescarga: string; zonas: number[];
+  cuadricula?: GeometriaCuadricula | null; rutaSalida: string; id: string; nombre: string; descarga: string; resumenDescarga: string; zonas: number[];
   resumen: { archivos_entrada: number; filas_entrada: number; vectores_completos: number; vectores_estables: number; duplicados_en_vector: number };
 };
 const MAX_BYTES = 28 * 1024 * 1024;
@@ -16,10 +18,12 @@ export default function PreparacionDatos() {
   const [directorioSalida, setDirectorioSalida] = useState("");
   const [seleccionandoCarpeta, setSeleccionandoCarpeta] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
+  const [definirCuadricula, setDefinirCuadricula] = useState(false);
+  const [cuadricula, setCuadricula] = useState<GeometriaCuadricula>({ filas: 3, columnas: 3, zonas: generarZonas(3, 3) });
   const inputRef = useRef<HTMLInputElement>(null);
   const contador = useRef(0);
   const arrastres = useRef(0);
-  const invalidos = archivos.some((a) => !/^\d+$/.test(a.zona) || !Number.isSafeInteger(Number(a.zona)) || Number(a.zona) < 1);
+  const invalidos = archivos.some((a) => !/^\d+$/.test(a.zona) || !Number.isSafeInteger(Number(a.zona)) || Number(a.zona) < 1 || (definirCuadricula && Number(a.zona) > cuadricula.zonas.length));
 
   function agregar(lista: FileList | File[]) {
     if (procesando) return;
@@ -56,7 +60,7 @@ export default function PreparacionDatos() {
     setProcesando(true); setError(""); setResultado(null);
     try {
       const carga = await Promise.all(archivos.map(async (a) => ({ nombre: a.file.name, contenido: await a.file.text(), zona: Number(a.zona) })));
-      const respuesta = await fetch("/api/preparacion", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivos: carga, directorioSalida }) });
+      const respuesta = await fetch("/api/preparacion", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivos: carga, directorioSalida, ...(definirCuadricula ? { cuadricula } : {}) }) });
       const datos = await respuesta.json();
       if (!respuesta.ok) throw new Error(datos.error ?? "No se pudieron preparar los archivos.");
       setResultado(datos as Resultado);
@@ -97,6 +101,15 @@ export default function PreparacionDatos() {
               <button className="boton preparacion-limpiar" disabled={procesando || !archivos.length} onClick={() => { setArchivos([]); setError(""); setResultado(null); }}><Trash2 size={17} /> Limpiar archivos cargados</button>
             </div>
           </section>
+          <section className="tarjeta entrenamiento-seccion">
+            <h2>Geometría de las zonas</h2>
+            <p>Las capturas guiadas nuevas conservan automáticamente filas, columnas y posiciones. Se guardan en el CSV etiquetado y en el modelo.</p>
+            <label className="geometria-opcion"><input type="checkbox" checked={definirCuadricula} disabled={procesando}
+              onChange={e => { setDefinirCuadricula(e.target.checked); setResultado(null); }} /><span>Definir cuadrícula para archivos sin geometría</span></label>
+            {definirCuadricula && <ConfigurarCuadricula valor={cuadricula} bloqueado={procesando}
+              onChange={valor => { setCuadricula(valor); setResultado(null); }} />}
+            <small>Si los archivos ya tienen geometría, debe coincidir con la indicada. No combines acomodos diferentes.</small>
+          </section>
           <div className="preparacion-aviso"><AlertTriangle size={21} /><p>Verifica la zona de cada archivo antes de preparar. Se reconoce del nombre, por ejemplo <code>dataset1_zona_1.csv</code>, y puedes corregirla en su tarjeta. No se eliminan registros iniciales ni se aplican recortes por tiempo.</p></div>
         </div>
         <aside className="tarjeta preparacion-salida">
@@ -109,12 +122,13 @@ export default function PreparacionDatos() {
             {seleccionandoCarpeta && <p role="status">Selecciona la carpeta en la ventana del sistema operativo.</p>}
             <small>El CSV y el resumen se guardarán aquí. Si el nombre ya existe, se añade un número.</small>
           </div>
-          {invalidos && <p className="preparacion-pendiente">Completa una zona entera positiva en cada tarjeta.</p>}
+          {invalidos && <p className="preparacion-pendiente">Revisa las zonas: deben ser enteros positivos y pertenecer a la cuadrícula indicada.</p>}
           <button className="boton primario" disabled={!archivos.length || invalidos || procesando || seleccionandoCarpeta} onClick={preparar}>{procesando ? <LoaderCircle size={19} className="preparacion-girando" /> : <Save size={19} />}{procesando ? "Preparando datos…" : "Preparar datos y unificar CSV"}</button>
           {procesando && <p role="status">Python está validando y agrupando las lecturas. Espera a que termine.</p>}
           {error && <p className="preparacion-error" role="alert">{error}</p>}
           {resultado && <div className="preparacion-resultado" role="status">
             <h3><CheckCircle2 size={19} /> CSV preparado</h3>
+            {resultado.cuadricula && <p>Cuadrícula conservada: {resultado.cuadricula.filas} × {resultado.cuadricula.columnas} · {resultado.cuadricula.zonas.length} zonas.</p>}
             <p className="preparacion-guardado">Guardado en: <strong>{resultado.rutaSalida}</strong></p>
             <dl><div><dt>Archivos procesados</dt><dd>{resultado.resumen.archivos_entrada}</dd></div><div><dt>Lecturas recibidas</dt><dd>{resultado.resumen.filas_entrada}</dd></div><div><dt>Vectores completos</dt><dd>{resultado.resumen.vectores_completos}</dd></div><div><dt>Vectores incompletos</dt><dd>{resultado.resumen.vectores_estables - resultado.resumen.vectores_completos}</dd></div><div><dt>Lecturas duplicadas</dt><dd>{resultado.resumen.duplicados_en_vector}</dd></div></dl>
             <p>Los incompletos quedan marcados; sólo los completos se usan para entrenar.</p>

@@ -1,4 +1,6 @@
-# Roadmap de Implementación — Mapa de Calor con ESP32, ESP-NOW, RSSI y Python
+# Roadmap — Mapa de Calor con ESP32, ESP-NOW, RSSI y Python
+
+> Revisado el 3 de noviembre de 2026. El estado implementado se resume a continuación y se detalla en [docs/arquitectura.md](docs/arquitectura.md). Las metas de interpolación, ocho torres, diez jugadores y visualización en vivo son ampliaciones propuestas. Los apartados de diseño original y sus checklists son planificación histórica, no evidencia de una prueba física ni instrucciones para reemplazar la arquitectura actual.
 
 ## 1. Descripción general del proyecto
 
@@ -18,42 +20,36 @@ El objetivo no es obtener una posición exacta tipo GPS, sino una **posición ap
 
 ## Estado de implementación
 
-El código dispone de captura RSSI v3 con sesiones de Gateway, torre y jugador, IDs dinámicos resueltos por MAC, validación de registros y colas separadas de control y telemetría. También contiene el pipeline Python de preprocesamiento, KNN y visualización 3×3.
+| Área | Implementación actual | Pendiente / alcance futuro |
+|---|---|---|
+| Radio | Un jugador, cuatro torres, Gateway, paquetes v3; beacons/control broadcast y lecturas unicast escalonadas. | Validación física de pérdida y latencia por campaña; escalamiento a más nodos. |
+| Red y captura | Hotspot de la PC, Gateway estación DHCP; anuncio UDP, control V3 con revisión/UUID y ACK, limpieza por captura y lotes HTTP aislados a Python/CSV v3. | Mediciones de entrega en campo y límites de latencia de las torres. |
+| Aplicación local | React/Vite, API Express/TypeScript y procesos Python. Captura manual/guiada, recuperación y descargas. | Mejoras de formularios y experiencia registradas como trabajo posterior. |
+| Preparación | Zona por archivo, agrupación por sesiones/secuencia, columnas por MAC, duplicados e incompletos. Sin recortes temporales automáticos. | Mantener tabla física y protocolo experimental de cada campaña. |
+| Modelos | KNN y Random Forest web configurables; CLI con opciones de evaluación. | Evaluación experimental documentada con datos elegidos explícitamente. |
+| Mapas | Cuadrícula dinámica hasta 20×20 con preset 3×3, geometría conservada en CSV/modelo, predicción sobre archivos, suavizado causal web por sesión/jugador y PNG/CSV/JSON. | Integración temporal, interpolación y visualización de predicciones en vivo. |
 
-El checkpoint actual no conserva evidencia experimental, datasets ni modelos entrenados. El siguiente paso es iniciar una nueva campaña de calibración en una zona de 6 m × 2,5 m y producir la primera línea de evidencia de esta etapa.
+El preset es 3×3 y el administrador puede cambiar filas, columnas y acomodo desde el frontend hasta 20×20. La geometría se conserva entre captura, preparación, entrenamiento y mapas. Los clasificadores web/CLI admiten etiquetas positivas; los mapas las validan contra la geometría elegida. El mapa actual cuenta vectores, no segundos de permanencia.
+
+Los artefactos experimentales se excluyen de Git. Esta copia local contiene datasets, modelos y resultados; no se atribuye una precisión vigente sin revisar su procedencia, geometría y evaluación. La ausencia de esos artefactos en un clon no implica que no existan en la PC de trabajo.
 
 ---
 
 ## 2. Idea central del sistema
 
-El sistema funcionará bajo esta arquitectura:
+El sistema implementado utiliza esta arquitectura:
 
 ```text
-ESP32 jugador 1  ----\
-ESP32 jugador 2  -----\
-ESP32 jugador 3  ------>  Torres ESP32 fijas  --->  Gateway / CSV  --->  Python
-...                   /
-ESP32 jugador 10 ----/
+Jugador -- ESP-NOW broadcast --> 4 torres -- ESP-NOW unicast --> Gateway
+PC (hotspot 2.4 GHz) <-- Wi-Fi estación / DHCP -- Gateway
+Gateway -- UDP broadcast :4210 --> Express -- UDP unicast --> Gateway
+Gateway -- HTTP :8080 /v1/registros --> receptor Python --> CSV v3
+Navegador React <-- HTTP /api :8000 --> Express --> procesos Python de análisis
 ```
 
-Cada ESP32 jugador transmite un paquete simple:
+Los beacons llevan sesión y secuencia; los registros de torre añaden RSSI y sesión/secuencia de transmisión propias. El Gateway añade su sesión, tiempo de recepción y MAC de torre al JSON HTTP; Python añade el timestamp UTC de la PC al CSV. La MAC determina la columna física del vector de cuatro RSSI. Los IDs son lógicos y dinámicos.
 
-```text
-player_id
-seq
-```
-
-Cada torre registra:
-
-```text
-timestamp
-player_id
-seq
-anchor_id
-rssi
-```
-
-Python agrupa los registros por jugador y número de paquete, forma un vector de RSSI por torre y usa un modelo de machine learning para estimar la zona o posición aproximada.
+El Gateway ya está presente en el MVP. USB/serial se usa para diagnóstico. La predicción de mapas se realiza sobre archivos; recibir datos durante una captura no implica inferencia ni visualización de posición en vivo.
 
 ---
 
@@ -68,11 +64,11 @@ Configuración inicial recomendada:
 ```text
 Jugadores: 1
 Torres: 4
-Área: 6 m x 6 m o 10 m x 10 m
+Área física documentada: 6 m x 2,5 m (verificar por campaña)
 Zonas: 3x3 = 9 zonas
 Comunicación: ESP-NOW
 Procesamiento: Python
-Modelo inicial: KNN
+Modelos implementados: KNN y Random Forest
 Salida: CSV + heatmap 3x3
 ```
 
@@ -230,76 +226,43 @@ Para versiones posteriores:
 
 ---
 
-## 6. Formato de datos
+## 6. Formato de datos vigente
 
-### 6.1 Paquete transmitido por jugador
+### 6.1 Contrato ESP-NOW v3
 
-El paquete mínimo del jugador debe contener:
+La fuente de verdad es `firmware/Comun/Paquete.h`: estructuras empaquetadas con encabezado de firma, versión y tipo. No se deben usar los esquemas mínimos de prototipos anteriores sin sesiones ni validación.
 
-```c
-typedef struct {
-    uint8_t player_id;
-    uint32_t seq;
-} player_packet_t;
+| Paquete | Campos después del encabezado |
+|---|---|
+| `ANUNCIO_GATEWAY` | `canal`, `sesion_gateway` |
+| `REGISTRO_NODO` | `rol`, `id_preferido`, `mac_nodo` |
+| `ASIGNACION_ID` | `rol`, `id_asignado`, `mac_destino` |
+| `BEACON_JUGADOR` | `id_jugador`, `sesion_jugador`, `secuencia`, `tiempo_jugador_ms` |
+| `REGISTRO_TORRE` | `id_torre`, `sesion_torre`, `secuencia_torre_tx`, `id_jugador`, `sesion_jugador`, `secuencia`, `rssi`, `tiempo_torre_ms` |
+
+El jugador emite cada 500–600 ms. La torre conserva el RSSI del beacon original y envía por unicast al peer aprendido del Gateway. Las sesiones no nulas separan reinicios. La MAC de origen y el instante de recepción del Gateway se añaden fuera del paquete de torre.
+
+### 6.2 Entrega HTTP y CSV v3
+
+El cuerpo HTTP es una lista JSON de 1–8 registros, enviada a `/v1/registros`. El contrato se valida en `python/receptor_gateway.py`. El CSV resultante contiene:
+
+```text
+timestamp_utc_pc,sesion_gateway,tiempo_gateway_recepcion_ms,tiempo_torre_ms,torre_id,sesion_torre,secuencia_torre_tx,mac_torre,jugador_id,sesion_jugador,secuencia,rssi
 ```
 
-Campos:
+El receptor añade `timestamp_utc_pc`; el resto procede del Gateway. HTTP 202 confirma encolado, no persistencia final. Las retransmisiones pueden duplicar filas. Los tiempos de las placas son locales, no sincronizados.
 
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `player_id` | `uint8_t` | Identificador único del jugador |
-| `seq` | `uint32_t` | Número incremental de paquete |
+### 6.3 Vectores y etiquetas
 
-No se requiere enviar batería para la localización. El campo de batería puede agregarse en el futuro solo para monitoreo operativo.
+Cada archivo se agrupa por `(sesion_gateway, jugador_id, sesion_jugador, secuencia)`. La tabla MAC→posición forma `[rssi_sup_izq, rssi_sup_der, rssi_inf_izq, rssi_inf_der]`; `torre_id` no es una característica del modelo.
 
-### 6.2 Registro generado por una torre
-
-Cuando una torre recibe un paquete, debe construir un registro:
-
-```c
-typedef struct {
-    uint32_t timestamp;
-    uint8_t anchor_id;
-    uint8_t player_id;
-    uint32_t seq;
-    int8_t rssi;
-} anchor_record_t;
-```
-
-Campos:
-
-| Campo | Tipo | Descripción |
-|---|---|---|
-| `timestamp` | `uint32_t` | Tiempo local en milisegundos |
-| `anchor_id` | `uint8_t` | Identificador de la torre receptora |
-| `player_id` | `uint8_t` | Jugador que transmitió el paquete |
-| `seq` | `uint32_t` | Número de paquete recibido |
-| `rssi` | `int8_t` | Intensidad de señal recibida en dBm |
-
-El contrato v3 también conserva `mac_torre`, `sesion_torre` y `secuencia_torre_tx`. `mac_torre` permite reconstruir la identidad física de la torre para el dataset; las sesiones y secuencias sirven para separar reinicios y diagnosticar pérdidas, no son características del modelo KNN.
-
-### 6.3 CSV recomendado
-
-Formato mínimo:
-
-```csv
-timestamp,player_id,seq,anchor_id,rssi
-15230,1,89,A1,-50
-15231,1,89,A2,-61
-15232,1,89,A3,-78
-15233,1,89,A4,-72
-```
-
-Formato extendido opcional:
-
-```csv
-timestamp,player_id,seq,anchor_id,rssi,channel,source_file
-15230,1,89,A1,-50,1,anchor_A1.csv
-```
+Se conserva `archivo_origen`, `dataset` opcional, sesiones, secuencia, `elapsed_s`, `zona`, `faltantes`, `completo` y `cuadricula` (geometría JSON cuando se conoce). Sólo los completos se entrenan y predicen. La zona de calibración se indica por archivo, con la web, `zona_N` en el nombre o `--zona` en CLI; no se deduce por bloques de tiempo. No se eliminan automáticamente segundos iniciales ni filas.
 
 ---
 
-## 7. Estructura de repositorio sugerida
+## 7. Estructura de repositorio propuesta originalmente
+
+La estructura siguiente se conserva como diseño histórico. Las rutas implementadas son `firmware/`, `backend/src/`, `frontend/src/`, `shared/`, `python/`, `tests/` y `backend/tests/`; véase [docs/contexto.md](docs/contexto.md). No reorganice el código actual para ajustarlo a este esquema.
 
 Codex debe organizar el proyecto con una estructura clara y modular.
 
@@ -371,6 +334,8 @@ heatmap-esp32-rssi/
 
 ## 8. Roadmap por fases
 
+Las fases originales describen objetivos de producto y criterios de aceptación experimental. Las fases 2 y 10 se actualizaron con la arquitectura elegida; para las demás, el estado implementado al inicio de este documento prevalece sobre listas históricas. Los tiempos de captura y resultados deben documentarse por campaña.
+
 ## Fase 0 — Definición del sistema
 
 ### Objetivo
@@ -380,7 +345,7 @@ Definir el alcance técnico, la geometría del área, la cantidad de torres, la 
 ### Configuración inicial recomendada
 
 ```text
-Área: 6 m x 6 m o 10 m x 10 m
+Área física documentada: 6 m x 2,5 m (verificar por campaña)
 Torres: 4
 Jugadores: 1
 Zonas: 3x3
@@ -460,89 +425,28 @@ timestamp,player_id,seq,anchor_id,rssi
 
 ---
 
-## Fase 2 — Registro de datos
+## Fase 2 — Registro de datos (implementación vigente)
 
-### Objetivo
+Se eligió un Gateway central desde el MVP. Las torres envían RSSI por ESP-NOW unicast y el Gateway entrega lotes HTTP al receptor Python en la PC. La salida serial se conserva para diagnóstico; no se usa un lector serial ni microSD para producir los CSV.
 
-Guardar las lecturas RSSI en CSV para posterior análisis.
+### Capacidades implementadas
 
-### Opciones de implementación
-
-### Opción A — CSV desde monitor serial
-
-La torre imprime datos por serial y una computadora los guarda.
-
-Ventajas:
-
-- Simple para MVP.
-- No requiere microSD.
-- Fácil de depurar.
-
-Desventajas:
-
-- Requiere una conexión USB por torre o pruebas una torre a la vez.
-
-### Opción B — microSD en cada torre
-
-Cada torre guarda su propio CSV.
-
-Ventajas:
-
-- No requiere conexión constante a PC.
-- Buena opción para campo abierto.
-
-Desventajas:
-
-- Hay que recolectar y unir archivos manualmente.
-
-### Opción C — Gateway central
-
-Las torres envían sus registros a un gateway central.
-
-Ventajas:
-
-- Permite tiempo real.
-- Facilita visualización en vivo.
-
-Desventajas:
-
-- Más complejo.
-- Puede introducir congestión si no se diseña bien.
-
-### Recomendación
-
-Para el MVP:
-
-```text
-Usar salida serial o microSD.
-```
-
-Para versión final:
-
-```text
-Usar gateway central.
-```
-
-### Tareas
-
-- [ ] Crear script Python para leer serial y guardar CSV.
-- [ ] Validar formato de líneas recibidas.
-- [ ] Guardar un archivo por torre o un archivo global.
-- [ ] Agregar timestamp de PC si es necesario.
-- [ ] Crear carpeta `data/raw/`.
-- [ ] Crear archivo de ejemplo en `data/examples/`.
+- [x] Receptor HTTP con validación de lotes v3, cola acotada y un escritor CSV.
+- [x] Timestamp UTC de la PC, sesiones y secuencias de diagnóstico.
+- [x] Captura web por nombre y duración, parada, recuperación e idempotencia.
+- [x] Un archivo nuevo por captura y metadatos para Datasets.
+- [x] CLI independiente que responde al descubrimiento del Gateway.
 
 ### Entregables
 
-- `src/data_loader.py`
-- `scripts/serial_logger.py`
-- `data/examples/sample_raw.csv`
+- `python/receptor_gateway.py`
+- `backend/src/gestor.ts`, `gateway.ts`, `app.ts`
+- `frontend/src/Lecturas.tsx`, `Datasets.tsx`
+- `tests/test_receptor_gateway.py`, `backend/tests/lecturas.test.ts`
 
-### Criterios de aceptación
+### Verificación y límites
 
-- Se puede generar un CSV válido.
-- El CSV contiene registros de al menos 1 jugador y 1 torre.
-- El CSV puede ser leído por pandas sin errores.
+Las pruebas locales ejercitan la recepción HTTP, cierre, persistencia y recuperación. Una campaña debe medir las pérdidas de radio y las colas. El Gateway descarta RSSI fuera de captura y limpia cola/lote antes de confirmar cada inicio. La duración empieza tras el ACK; jugador y torres mantienen sus relojes y pequeñas colas. HTTP 202 admite un lote en memoria y no garantiza persistencia inmediata.
 
 ---
 
@@ -565,7 +469,7 @@ Z7  Z8  Z9
 En cada zona:
 
 1. Colocar el ESP32 jugador en el centro de la zona.
-2. Registrar datos durante 60 segundos.
+2. Registrar un archivo por zona durante una duración definida en el protocolo (60 segundos es el valor inicial del formulario). No se recortan automáticamente transiciones; considere las colas entre archivos descritas en `docs/prueba_campo_captura.md`.
 3. Repetir con distintas orientaciones.
 4. Etiquetar todas las muestras con la zona real.
 
@@ -1032,51 +936,31 @@ intervalo = 500 ms + random(0, 100 ms)
 
 ---
 
-## Fase 10 — Gateway y tiempo real
+## Fase 10 — Gateway y predicción en vivo
 
-### Objetivo
+### Centralización implementada
 
-Centralizar los registros de las torres para permitir procesamiento en tiempo real.
+El Gateway ESP32 ya centraliza los registros desde el MVP. Usa Wi-Fi como estación del hotspot de la PC y ESP-NOW en el mismo canal. Descubre la PC con anuncios UDP broadcast cada 2 s y recibe una respuesta unicast con su sesión y el puerto HTTP. En web Express posee UDP 4210; Python recibe lotes en HTTP 8080. El CLI independiente asume ambos servicios cuando el backend está detenido.
 
-### Opciones
+- [x] Protocolo v3, registro de nodos por MAC y asignación dinámica de IDs.
+- [x] Registros unicast escalonados de las torres, colas y contadores.
+- [x] Descubrimiento UDP y entrega HTTP por lotes con reintentos.
+- [x] Receptor CSV y estado real de captura en la interfaz web.
 
-1. Gateway ESP32 conectado por USB a PC.
-2. Raspberry Pi como receptor y procesador.
-3. Laptop recibiendo serial de varias torres.
-4. Torres enviando por Wi-Fi a servidor local.
+### Ampliación pendiente
 
-### Recomendación
+- [ ] Inferencia continua sobre las lecturas entrantes.
+- [ ] Visualización de posición y mapa sin seleccionar archivos manualmente.
+- [ ] Medición de latencia de extremo a extremo y pérdidas bajo la carga objetivo.
+- [x] Control PC–Gateway con limpieza por captura, ACK e identidad HTTP; sin cambios de radio en jugador/torres.
 
-Para la versión final, usar:
-
-```text
-Torres -> Gateway -> PC/Python
-```
-
-### Tareas
-
-- [ ] Diseñar protocolo de torre a gateway.
-- [ ] Implementar envío de registros desde torre.
-- [ ] Implementar recepción en gateway.
-- [ ] Enviar registros por serial a Python.
-- [ ] Crear lector en tiempo real.
-- [ ] Validar latencia.
-
-### Entregables
-
-- `firmware/gateway_node/`
-- Script Python de recepción en tiempo real.
-- Demo en vivo.
-
-### Criterios de aceptación
-
-- Python recibe registros de varias torres.
-- El visualizador se actualiza sin depender de archivos manuales.
-- La latencia es aceptable para visualización aproximada.
+Los mapas actuales son resultados de procesar archivos. El panel actualiza estado y conteos de captura, no posiciones predichas en vivo. La comunicación PC–Gateway no utiliza serial como transporte de datos.
 
 ---
 
-## 9. Módulos Python esperados
+## 9. Módulos Python propuestos originalmente
+
+Este desglose modular es una propuesta de diseño, no el árbol actual. Los scripts vigentes y sus responsabilidades se enumeran en [docs/contexto.md](docs/contexto.md). `requirements.txt` define las dependencias instalables; pyserial y pandas no son requisitos del receptor actual.
 
 ## 9.1 `config.py`
 
@@ -1373,7 +1257,9 @@ Implementar en este orden:
 
 ---
 
-## 14. Checklist del MVP
+## 14. Checklist de aceptación experimental del MVP
+
+Esta lista se completa con evidencia de una campaña, no con la mera existencia del código. Para capacidades implementadas consulte la tabla de estado inicial.
 
 El MVP se considera completo cuando se cumpla lo siguiente:
 
@@ -1417,7 +1303,9 @@ El MVP se considera completo cuando se cumpla lo siguiente:
 
 ---
 
-## 17. Prompt sugerido para Codex
+## 17. Prompt original de planificación (referencia histórica)
+
+Este prompt antecede a la implementación React/Express/Python actual y no es una instrucción vigente para reconstruir el repositorio. Use `docs/arquitectura.md`, `docs/reglas.md` y el código para nuevas tareas.
 
 Usa este proyecto como una especificación técnica. Implementa el repositorio `heatmap-esp32-rssi` siguiendo la estructura propuesta. Prioriza primero el pipeline Python con datos simulados y CSV de ejemplo antes de implementar firmware completo.
 

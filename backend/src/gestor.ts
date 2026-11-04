@@ -1,3 +1,5 @@
+import { DescubridorGateway } from "./gateway.js";
+import { validarCuadricula, type GeometriaCuadricula } from "../../shared/cuadricula.js";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -43,6 +45,7 @@ interface EventoPython {
   ultimaRecepcionUtc?: string | null;
   error?: string | null;
   pid?: number;
+  preparado?: boolean;
 }
 
 /** Construye la fecha del archivo con la zona horaria del PC de captura. */
@@ -92,7 +95,12 @@ export function validarSolicitud(carga: unknown): SolicitudLectura {
       400,
       "La duración debe ser un entero entre 1 y 86400 segundos.",
     );
-  return { solicitudId, nombreArchivo: nombre, duracionSegundos };
+  let cuadricula: GeometriaCuadricula | undefined;
+  if ("cuadricula" in carga && carga.cuadricula !== undefined) {
+    try { cuadricula = validarCuadricula(carga.cuadricula); }
+    catch (error) { throw new ErrorPeticion(400, (error as Error).message); }
+  }
+  return { solicitudId, nombreArchivo: nombre, duracionSegundos, ...(cuadricula ? { cuadricula } : {}) };
 }
 
 /** Administra una captura independiente y conserva su resultado en el disco local. */
@@ -104,6 +112,7 @@ export class GestorLecturas {
   private directorioEstado: string;
   private vigilancia: ReturnType<typeof setInterval>;
   private cerrando = false;
+  public readonly gateway: DescubridorGateway;
 
   constructor(public configuracion: Configuracion) {
     configuracion.directorioDatos = resolve(configuracion.directorioDatos);
@@ -124,8 +133,13 @@ export class GestorLecturas {
       )
         throw new Error("Metadatos de captura inválidos.");
       this.registros.set(captura.id, captura);
+      if (captura.falloControl) this.fallos.set(captura.id, captura.falloControl);
     }
+    this.gateway = new DescubridorGateway(configuracion.puertoUdp, this.directorioEstado);
+    this.gateway.on("confirmacion", (id: string) => this.confirmarGateway(id));
+    this.gateway.on("fallo", (id: string, mensaje: string) => this.fallarInicio(id, mensaje));
     this.actualizar();
+    this.gateway.iniciar();
     this.vigilancia = setInterval(() => this.actualizar(), 500);
     this.vigilancia.unref();
   }
@@ -154,11 +168,47 @@ export class GestorLecturas {
       "error",
     ];
     if (!estados.includes(evento.estado)) return;
+    // Una parada o fallo del backend no se revierte por un evento viejo de Python.
+    const cerrando = captura.estado === "cerrando";
     Object.assign(captura, evento);
+    if (cerrando && ["iniciando", "grabando"].includes(evento.estado)) captura.estado = "cerrando";
+    if (this.fallos.has(captura.id) && !capturaActiva(captura)) {
+      captura.estado = "error"; captura.error = this.fallos.get(captura.id)!;
+    }
+    this.sincronizarGateway();
     // La API no habilita otra captura hasta que el hijo termine realmente.
     if (!capturaActiva(captura) && this.pendientesSalida.has(captura.id))
       return;
     this.guardar(captura);
+  }
+
+  /** Reconcilia el control UDP con el receptor preparado, sin abrir capturas nuevas. */
+  private sincronizarGateway() {
+    const captura = [...this.registros.values()].find(c =>
+      c.estado === "grabando" || (c.estado === "iniciando" && c.preparado));
+    if (captura && !this.cerrando && !this.fallos.has(captura.id))
+      this.gateway.autorizar(captura.id, this.configuracion.puertoHttp);
+    else this.gateway.desactivar();
+  }
+
+  private confirmarGateway(id: string) {
+    const captura = this.registros.get(id);
+    if (!captura || captura.estado !== "iniciando" || !captura.preparado || this.fallos.has(id)) return;
+    captura.gatewayConfirmado = true;
+    this.guardar(captura);
+    const ruta = join(this.directorioEstado, `${id}.iniciar`);
+    writeFileSync(`${ruta}.tmp`, JSON.stringify({ capturaId: id }));
+    renameSync(`${ruta}.tmp`, ruta);
+    this.procesos.get(id)?.stdin.write("iniciar\n");
+  }
+
+  private fallarInicio(id: string, mensaje: string) {
+    const captura = this.registros.get(id);
+    if (!captura || !capturaActiva(captura) || captura.estado === "cerrando") return;
+    this.fallos.set(id, mensaje);
+    captura.error = mensaje;
+    captura.falloControl = mensaje;
+    this.detener(id);
   }
 
   /** Recupera eventos del hijo incluso si el backend se reinició mientras grababa. */
@@ -200,7 +250,10 @@ export class GestorLecturas {
           this.guardar(captura);
         }
       }
+      if (captura.estado === "iniciando" && Date.now() - Date.parse(captura.creadaUtc) >= 10000)
+        this.fallarInicio(captura.id, "El Gateway no confirmó la captura en 10 segundos. Revisa su conexión e inténtalo otra vez.");
     }
+    this.sincronizarGateway();
   }
 
   listar() {
@@ -248,7 +301,8 @@ export class GestorLecturas {
     if (anterior) {
       if (
         anterior.nombreArchivo !== solicitud.nombreArchivo ||
-        anterior.duracionSegundos !== solicitud.duracionSegundos
+        anterior.duracionSegundos !== solicitud.duracionSegundos ||
+        JSON.stringify(anterior.cuadricula) !== JSON.stringify(solicitud.cuadricula)
       )
         throw new ErrorPeticion(
           409,
@@ -287,6 +341,8 @@ export class GestorLecturas {
       ultimaRecepcionUtc: null,
       error: null,
       pid: null,
+      preparado: false,
+      gatewayConfirmado: false,
     };
     this.registros.set(captura.id, captura);
     this.guardar(captura);
@@ -307,6 +363,9 @@ export class GestorLecturas {
       "--duracion",
       String(solicitud.duracionSegundos),
       "--control-json",
+      "--captura-id", captura.id,
+      "--esperar-inicio",
+      "--iniciar-archivo", join(this.directorioEstado, `${captura.id}.iniciar`),
       "--sin-anuncio-udp",
       "--nuevo",
       "--estado-json",
@@ -314,6 +373,7 @@ export class GestorLecturas {
       "--detener-archivo",
       this.rutaParada(captura.id),
     ];
+    if (solicitud.cuadricula) argumentos.push("--cuadricula-json", JSON.stringify(solicitud.cuadricula));
     const hijo = spawn(cfg.python, argumentos, {
       cwd: cfg.raiz,
       env: { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" },
@@ -359,6 +419,7 @@ export class GestorLecturas {
         captura.finUtc = new Date().toISOString();
       }
       this.guardar(captura);
+      this.sincronizarGateway();
     });
     return this.presentar(captura);
   }
@@ -371,6 +432,7 @@ export class GestorLecturas {
     this.procesos.get(id)?.stdin.write("detener\n");
     captura.estado = "cerrando";
     this.guardar(captura);
+    this.sincronizarGateway();
     return this.presentar(captura);
   }
 
@@ -405,5 +467,7 @@ export class GestorLecturas {
       this.procesos.get(captura.id)?.kill("SIGKILL");
       this.guardar(captura);
     }
+    this.gateway.desactivar();
+    this.gateway.cerrar();
   }
 }

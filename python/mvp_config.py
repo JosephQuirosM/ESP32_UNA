@@ -1,4 +1,6 @@
-"""Contrato estable del MVP KNN para el mapa de calor RSSI.
+"""Características RSSI estables y preset histórico 3×3.
+
+La geometría configurable del flujo actual se gestiona en cuadricula.py.
 
 La identidad física de una torre es su MAC. Los IDs asignados por el Gateway
 son dinámicos y no deben usarse como características ni como etiquetas.

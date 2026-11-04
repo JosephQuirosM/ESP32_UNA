@@ -1,3 +1,4 @@
+import { validarCuadricula, type GeometriaCuadricula } from "../../shared/cuadricula.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { networkInterfaces } from "node:os";
@@ -58,6 +59,11 @@ export function rutasPreparacion(config: Configuracion) {
     finally { selectorAbierto = false; }
   });
   router.post("/", json({ limit: "32mb" }), async (req, res) => {
+    let cuadricula: GeometriaCuadricula | undefined;
+    if (req.body?.cuadricula !== undefined) {
+      try { cuadricula = validarCuadricula(req.body.cuadricula); }
+      catch (e) { throw new ErrorPeticion(400, (e as Error).message); }
+    }
     const archivos = req.body?.archivos;
     if (!Array.isArray(archivos) || !archivos.length || archivos.length > 200)
       throw new ErrorPeticion(400, "Selecciona entre 1 y 200 archivos CSV.");
@@ -98,7 +104,7 @@ export function rutasPreparacion(config: Configuracion) {
           else resolve(stdout);
         });
         child.stdin.on("error", () => { /* La salida del proceso informa el error. */ });
-        child.stdin.end(JSON.stringify({ archivos }));
+        child.stdin.end(JSON.stringify({ archivos, cuadricula }));
       });
       let rutaSalida = join(carpeta, "dataset_etiquetado.csv");
       if (destino) {

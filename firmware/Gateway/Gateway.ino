@@ -3,6 +3,7 @@
 #include <WiFiUdp.h>
 
 #include "config.h"
+#include "ControlCaptura.h"
 #include "../Comun/IdeaBoard.h"
 #include "../Comun/LedEstado.h"
 #include "../Comun/Paquete.h"
@@ -40,6 +41,9 @@ EventoRegistro colaRegistros[CAPACIDAD_COLA_REGISTROS];
 uint8_t indiceLecturaRegistros = 0;
 uint8_t indiceEscrituraRegistros = 0;
 uint32_t descartesColaRegistros = 0;
+uint32_t descartesInactivos = 0;
+uint32_t registrosPurgados = 0;
+ControlCaptura controlCaptura;
 portMUX_TYPE mutexColaRegistros = portMUX_INITIALIZER_UNLOCKED;
 
 EventoRegistro lotePendiente[TAMANO_LOTE_HTTP];
@@ -98,6 +102,11 @@ bool sacarControl(EventoControl &evento) {
 void encolarRegistro(const EventoRegistro &evento) {
   portENTER_CRITICAL(&mutexColaRegistros);
   ++registrosRecibidos;
+  if (!controlCaptura.activa(millis())) {
+    ++descartesInactivos;
+    portEXIT_CRITICAL(&mutexColaRegistros);
+    return;
+  }
   const uint8_t siguiente = (indiceEscrituraRegistros + 1) % CAPACIDAD_COLA_REGISTROS;
   if (siguiente == indiceLecturaRegistros) {
     ++descartesColaRegistros;
@@ -225,62 +234,105 @@ void anunciarGateway() {
   enviarBroadcast(&paquete, sizeof(paquete));
 }
 
-// El Gateway calcula el broadcast de la red que le asignó DHCP; la PC no anuncia.
+// Vacía telemetría y lote; nunca modifica la cola de registro de nodos.
+void limpiarCaptura(bool cerrar) {
+  portENTER_CRITICAL(&mutexColaRegistros);
+  if (cerrar) controlCaptura.cerrar();
+  registrosPurgados += (indiceEscrituraRegistros + CAPACIDAD_COLA_REGISTROS -
+                       indiceLecturaRegistros) % CAPACIDAD_COLA_REGISTROS;
+  indiceLecturaRegistros = 0;
+  indiceEscrituraRegistros = 0;
+  portEXIT_CRITICAL(&mutexColaRegistros);
+  registrosPurgados += cantidadLotePendiente;
+  cantidadLotePendiente = 0;
+  reintentosLotePendiente = 0;
+  proximoIntentoHttpMs = 0;
+}
+
+// Anuncia presencia y capacidad de captura al broadcast calculado por DHCP.
 void anunciarGatewayPc() {
   uint32_t recibidos = 0;
+  uint32_t inactivos = 0;
   portENTER_CRITICAL(&mutexColaRegistros);
   recibidos = registrosRecibidos;
+  inactivos = descartesInactivos;
   portEXIT_CRITICAL(&mutexColaRegistros);
   const bool pcConfirmada = static_cast<int32_t>(venceDestinoPcMs - millis()) > 0;
-  char mensaje[384];
+  char mensaje[640];
   snprintf(mensaje, sizeof(mensaje),
            "HEATMAP_GATEWAY_V1 {\"mac\":\"%s\",\"sesion\":%lu,\"canal\":%u,"
            "\"uptimeMs\":%lu,\"registrosRecibidos\":%lu,\"registrosEnviados\":%lu,"
-           "\"fallosHttp\":%lu,\"pcConfirmada\":%s}",
+           "\"fallosHttp\":%lu,\"pcConfirmada\":%s,\"controlCaptura\":1,"
+           "\"revisionControl\":%llu,\"capturaId\":\"%s\",\"capturando\":%s,"
+           "\"descartesInactivos\":%lu,\"registrosPurgados\":%lu}",
            WiFi.macAddress().c_str(), static_cast<unsigned long>(sesionGateway),
            WiFi.channel(), static_cast<unsigned long>(millis()),
            static_cast<unsigned long>(recibidos), static_cast<unsigned long>(registrosEnviados),
-           static_cast<unsigned long>(fallosHttp), pcConfirmada ? "true" : "false");
+           static_cast<unsigned long>(fallosHttp), pcConfirmada ? "true" : "false",
+           static_cast<unsigned long long>(controlCaptura.revision()), controlCaptura.id(),
+           controlCaptura.activa(millis()) ? "true" : "false",
+           static_cast<unsigned long>(inactivos), static_cast<unsigned long>(registrosPurgados));
   if (!udp.beginPacket(WiFi.broadcastIP(), PUERTO_DESCUBRIMIENTO_UDP)) return;
   udp.write(reinterpret_cast<const uint8_t *>(mensaje), strlen(mensaje));
   if (!udp.endPacket()) Serial.println("No se pudo enviar el anuncio UDP del Gateway");
 }
 
+// Sólo acepta control V3 de la PC del hotspot y de esta sesión de Gateway.
 void actualizarDestinoPc() {
   const int disponibles = udp.parsePacket();
   if (disponibles <= 0) return;
-  // En este despliegue la PC es la puerta de enlace DHCP del hotspot.
-  if (udp.remoteIP() != WiFi.gatewayIP()) {
+  if (udp.remoteIP() != WiFi.gatewayIP() || disponibles >= 192) {
     udp.flush();
     return;
   }
-  char mensaje[64] = {};
-  const int leidos = udp.read(mensaje, sizeof(mensaje) - 1);
-  if (leidos <= 0) return;
-  unsigned int puerto = 0;
+  char mensaje[192] = {};
+  if (udp.read(mensaje, sizeof(mensaje) - 1) <= 0) return;
   unsigned long sesion = 0;
-  const bool respuestaActual = sscanf(mensaje, "HEATMAP_PC_V2 %lu %u", &sesion, &puerto) == 2 &&
-                               sesion == static_cast<unsigned long>(sesionGateway);
-  // Conserva el receptor por CLI anterior como alternativa independiente.
-  if (!respuestaActual && sscanf(mensaje, "HEATMAP_PC_V1 %u", &puerto) != 1) return;
-  if (puerto > 65535) return;
-  const bool cambioDestino = ipPc != udp.remoteIP() || puertoHttpPc != puerto ||
-                            static_cast<int32_t>(venceDestinoPcMs - millis()) <= 0;
+  unsigned long long revision = 0;
+  unsigned int puerto = 0;
+  char id[37] = {};
+  int final = 0;
+  if (sscanf(mensaje, "HEATMAP_PC_V3 %lu %llu %36s %u %n", &sesion, &revision,
+             id, &puerto, &final) != 4 || final == 0 || mensaje[final] != '\0' ||
+      sesion != static_cast<unsigned long>(sesionGateway) || puerto > 65535) return;
+  portENTER_CRITICAL(&mutexColaRegistros);
+  const ControlCaptura::Resultado resultado = controlCaptura.ordenar(revision, id, puerto, millis());
+  if (resultado == ControlCaptura::NUEVA) {
+    // El callback usa el mismo bloqueo: no puede encolar entre limpieza y apertura.
+    registrosPurgados += (indiceEscrituraRegistros + CAPACIDAD_COLA_REGISTROS -
+                         indiceLecturaRegistros) % CAPACIDAD_COLA_REGISTROS;
+    indiceLecturaRegistros = 0;
+    indiceEscrituraRegistros = 0;
+  }
+  portEXIT_CRITICAL(&mutexColaRegistros);
+  if (resultado == ControlCaptura::IGNORADA) return;
+  if (resultado == ControlCaptura::NUEVA) {
+    registrosPurgados += cantidadLotePendiente;
+    cantidadLotePendiente = 0;
+    reintentosLotePendiente = 0;
+    proximoIntentoHttpMs = 0;
+    Serial.printf("Control captura: revision=%llu id=%s puerto=%u; cola y lote limpios\n",
+                  revision, id, puerto);
+  }
   ipPc = udp.remoteIP();
-  puertoHttpPc = static_cast<uint16_t>(puerto);
+  puertoHttpPc = controlCaptura.puerto(millis());
   venceDestinoPcMs = millis() + VIGENCIA_DESTINO_PC_MS;
   led.fijo(VERDE);
-  if (cambioDestino) {
-    if (puertoHttpPc != 0)
-      Serial.printf("PC descubierta: %s:%u\n", ipPc.toString().c_str(), puertoHttpPc);
-    else
-      Serial.printf("PC confirmada: %s; sin captura activa\n", ipPc.toString().c_str());
+  char confirmacion[128];
+  snprintf(confirmacion, sizeof(confirmacion), "HEATMAP_ACK_V3 %lu %llu %s %u",
+           static_cast<unsigned long>(sesionGateway),
+           static_cast<unsigned long long>(controlCaptura.revision()),
+           controlCaptura.id(), puertoHttpPc);
+  if (udp.beginPacket(ipPc, udp.remotePort())) {
+    udp.write(reinterpret_cast<const uint8_t *>(confirmacion), strlen(confirmacion));
+    udp.endPacket();
   }
 }
 
 bool destinoPcDisponible() {
   return wifiConectada && canalCompatible && WiFi.status() == WL_CONNECTED &&
-         puertoHttpPc != 0 && static_cast<int32_t>(venceDestinoPcMs - millis()) > 0;
+         controlCaptura.activa(millis()) && puertoHttpPc != 0 &&
+         static_cast<int32_t>(venceDestinoPcMs - millis()) > 0;
 }
 
 void conectarWifiPc() {
@@ -294,6 +346,7 @@ void conectarWifiPc() {
 bool actualizarConexionWifi() {
   if (WiFi.status() != WL_CONNECTED) {
     if (wifiConectada) {
+      limpiarCaptura(true);
       wifiConectada = false;
       canalCompatible = false;
       puertoHttpPc = 0;
@@ -339,6 +392,7 @@ bool actualizarConexionWifi() {
   }
   // Detecta también un cambio de canal del AP durante una conexión activa.
   if (canalCompatible && WiFi.channel() != CANAL_ESPNOW) {
+    limpiarCaptura(true);
     canalCompatible = false;
     puertoHttpPc = 0;
     venceDestinoPcMs = 0;
@@ -414,6 +468,7 @@ void enviarLotePendiente() {
   cliente.setTimeout(TIEMPO_ESPERA_HTTP_MS);
   cliente.begin(url);
   cliente.addHeader("Content-Type", "application/json");
+  cliente.addHeader("X-Heatmap-Captura", controlCaptura.id());
   const uint32_t inicioHttpMs = millis();
   const int estado = cliente.POST(cuerpo);
   latenciaHttpAcumuladaMs += millis() - inicioHttpMs;
@@ -459,7 +514,11 @@ void setup() {
 
 void loop() {
   led.actualizar();
-  if (!actualizarConexionWifi()) return;
+  if (!actualizarConexionWifi()) {
+    limpiarCaptura(true);
+    return;
+  }
+  if (!controlCaptura.activa(millis())) limpiarCaptura(true);
   actualizarDestinoPc();
   procesarControles();
   const uint32_t ahora = millis();
@@ -475,6 +534,7 @@ void loop() {
     uint32_t datos = 0;
     uint32_t descartesControl = 0;
     uint32_t descartesDatos = 0;
+    uint32_t inactivos = 0;
     portENTER_CRITICAL(&mutexColaControl);
     controles = controlesRecibidos;
     descartesControl = descartesColaControl;
@@ -482,11 +542,13 @@ void loop() {
     portENTER_CRITICAL(&mutexColaRegistros);
     datos = registrosRecibidos;
     descartesDatos = descartesColaRegistros;
+    inactivos = descartesInactivos;
     portEXIT_CRITICAL(&mutexColaRegistros);
     Serial.printf(
         "Gateway: control=%lu datos=%lu enviados=%lu descartes_control=%lu "
         "descartes_datos=%lu inválidos=%lu descartes_entrega=%lu fallos_http=%lu "
-        "reintentos=%lu latencia_http_media_ms=%lu destino_pc=%s\n",
+        "reintentos=%lu latencia_http_media_ms=%lu destino_pc=%s "
+        "descartes_inactivos=%lu purgados=%lu captura=%s\n",
         static_cast<unsigned long>(controles),
         static_cast<unsigned long>(datos),
         static_cast<unsigned long>(registrosEnviados),
@@ -497,6 +559,8 @@ void loop() {
         static_cast<unsigned long>(fallosHttp), static_cast<unsigned long>(reintentosHttp),
         respuestasHttp == 0 ? 0UL
                             : static_cast<unsigned long>(latenciaHttpAcumuladaMs / respuestasHttp),
-        destinoPcDisponible() ? "si" : "no");
+        destinoPcDisponible() ? "si" : "no",
+        static_cast<unsigned long>(inactivos), static_cast<unsigned long>(registrosPurgados),
+        controlCaptura.id());
   }
 }

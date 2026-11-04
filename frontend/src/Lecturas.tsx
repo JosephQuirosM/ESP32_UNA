@@ -7,6 +7,7 @@ import {
   FileText,
   Grid3X3,
   Info,
+  LoaderCircle,
   RefreshCw,
   SkipForward,
   Square,
@@ -98,6 +99,8 @@ function recuperar(): Sesion {
     // Recupera un inicio que falló antes de crear y enviar su identificador.
     if (valor.fase === "captura" && !valor.solicitud && !valor.captura)
       return { ...valor, fase: valor.modo === "guiado" ? "esperando" : "configuracion" };
+    if (valor.solicitud && (!valor.captura || valor.captura.estado === "iniciando"))
+      return { ...valor, fase: valor.modo === "guiado" ? "esperando" : "configuracion" };
     return valor;
   } catch {
     return inicial;
@@ -166,7 +169,13 @@ export default function Lecturas({
     setSinCrear(false);
     setConexionCaptura(true);
     if (capturaActiva(captura)) {
-      actualizar({ captura });
+      actualizar({ captura, ...(captura.inicioUtc ? { fase: "captura" as const } : {}) });
+      return;
+    }
+    if (!captura.inicioUtc) {
+      actualizar({ captura, solicitud: null, fase: captura.estado === "detenida"
+        ? "detenida" : previa.modo === "guiado" ? "esperando" : "configuracion" });
+      if (captura.error) setError(captura.error);
       return;
     }
     if (captura.estado === "completada" && previa.modo === "guiado") {
@@ -240,7 +249,7 @@ export default function Lecturas({
     } catch (error) {
       setError((error as Error).message);
       if (error instanceof ErrorApi && error.codigo !== 0)
-        actualizar({ fase: "error", solicitud: null });
+        actualizar({ fase: sesionRef.current.modo === "guiado" ? "esperando" : "configuracion", solicitud: null });
       else {
         setConexionCaptura(false);
         setSinCrear(true);
@@ -267,8 +276,11 @@ export default function Lecturas({
       nombreArchivo:
         nombreArchivo ?? `${previa.nombre}_zona_${previa.indice + 1}`,
       duracionSegundos: Number(previa.duracion),
+      ...(previa.modo === "guiado" ? { cuadricula: {
+        filas: Number(previa.filas), columnas: Number(previa.columnas), zonas: [...previa.zonas],
+      } } : {}),
     };
-    actualizar({ fase: "captura", solicitud, captura: null });
+    actualizar({ solicitud, captura: null });
     void enviar(solicitud);
   }
 
@@ -299,7 +311,7 @@ export default function Lecturas({
       omitidas: [],
       captura: null,
       solicitud: null,
-      fase: sesion.modo === "guiado" ? "esperando" : "captura",
+      fase: sesion.modo === "guiado" ? "esperando" : "configuracion",
     });
     if (sesion.modo === "manual") iniciar(nombre);
   }
@@ -324,7 +336,7 @@ export default function Lecturas({
   }
   async function detener() {
     if (ocupadoRef.current) return;
-    if (sesion.fase === "esperando") {
+    if (sesion.fase === "esperando" && !sesion.solicitud) {
       actualizar({ fase: "detenida" });
       return;
     }
@@ -347,6 +359,8 @@ export default function Lecturas({
     }
   }
   const captura = sesion.captura;
+  const iniciando = !!sesion.solicitud && (!captura || captura.estado === "iniciando" || !captura.inicioUtc);
+  const bloqueado = ocupado || iniciando;
   const instanteReloj = captura?.finUtc ? Date.parse(captura.finUtc) : ahora;
   const restante = captura?.finPrevistoUtc
     ? Math.max(0, (Date.parse(captura.finPrevistoUtc) - instanteReloj) / 1000)
@@ -380,6 +394,11 @@ export default function Lecturas({
           {error}
         </p>
       )}
+      {sinCrear && sesion.solicitud && !ocupado && (
+        <button className="boton secundario" disabled={!conectado} onClick={() => void enviar(sesion.solicitud!)}>
+          <RefreshCw size={18} /> Reintentar inicio de esta captura
+        </button>
+      )}
       {sesion.fase === "configuracion" ? (
         <div className="layout-captura">
           <section className="tarjeta configuracion">
@@ -393,6 +412,7 @@ export default function Lecturas({
               aria-label="Modo de recolección"
             >
               <button
+                disabled={bloqueado}
                 aria-pressed={sesion.modo === "guiado"}
                 className={sesion.modo === "guiado" ? "activo" : ""}
                 onClick={() => actualizar({ modo: "guiado" })}
@@ -401,6 +421,7 @@ export default function Lecturas({
                 Guiado
               </button>
               <button
+                disabled={bloqueado}
                 aria-pressed={sesion.modo === "manual"}
                 className={sesion.modo === "manual" ? "activo" : ""}
                 onClick={() => actualizar({ modo: "manual" })}
@@ -422,6 +443,7 @@ export default function Lecturas({
                     <div>
                       <label htmlFor="filas">Filas</label>
                       <input
+                        disabled={bloqueado}
                         id="filas"
                         type="number"
                         min="1"
@@ -437,6 +459,7 @@ export default function Lecturas({
                     <div>
                       <label htmlFor="columnas">Columnas</label>
                       <input
+                        disabled={bloqueado}
                         id="columnas"
                         type="number"
                         min="1"
@@ -460,6 +483,7 @@ export default function Lecturas({
               )}
               <label htmlFor="nombre">Nombre del archivo</label>
               <input
+                disabled={bloqueado}
                 id="nombre"
                 value={sesion.nombre}
                 maxLength={84}
@@ -476,6 +500,7 @@ export default function Lecturas({
               </label>
               <div className="input-unidad">
                 <input
+                  disabled={bloqueado}
                   id="duracion"
                   type="number"
                   min="1"
@@ -495,23 +520,24 @@ export default function Lecturas({
                 <FileText size={18} />
                 <span>{vistaNombre}</span>
                 <small>
-                  Fecha y hora reales de inicio en Costa Rica, asignadas por el
+                  Fecha y hora de solicitud en Costa Rica, asignadas por el
                   backend.
                 </small>
               </div>
               <button
                 className="boton primario ancho"
                 disabled={
-                  ocupado ||
+                  bloqueado ||
                   otraActiva ||
                   (sesion.modo === "manual" && !conectado)
                 }
                 type="submit"
+                aria-busy={iniciando}
               >
                 {sesion.modo === "guiado"
                   ? "Preparar recorrido"
                   : "Iniciar captura"}
-                <ArrowRight size={18} />
+                {iniciando ? <LoaderCircle size={18} className="preparacion-girando" aria-hidden="true" /> : <ArrowRight size={18} />}
               </button>
             </form>
           </section>
@@ -536,7 +562,7 @@ export default function Lecturas({
                   completas={[]}
                   ejecutando={false}
                   onReordenar={
-                    dimensionesValidas
+                    dimensionesValidas && !bloqueado
                       ? (zonas) => actualizar({ zonas })
                       : undefined
                   }
@@ -628,7 +654,7 @@ export default function Lecturas({
                 aria-label="Progreso de captura"
               />
             )}
-            {captura && (
+            {captura && !iniciando && (
               <div className="resumen-captura">
                 <FileText size={18} />
                 <strong>{captura.archivo}</strong>
@@ -655,13 +681,14 @@ export default function Lecturas({
                 <>
                   <button
                     className="boton primario ancho"
-                    disabled={!conectado || ocupado || otraActiva}
+                    disabled={!conectado || bloqueado || otraActiva}
+                    aria-busy={iniciando}
                     onClick={() => iniciar()}
                   >
-                    <Check size={18} />
+                    {iniciando ? <LoaderCircle size={18} className="preparacion-girando" aria-hidden="true" /> : <Check size={18} />}
                     Estoy en la zona {zona}, iniciar captura
                   </button>
-                  <button className="boton secundario ancho" onClick={saltar}>
+                  <button className="boton secundario ancho" disabled={bloqueado} onClick={saltar}>
                     <SkipForward size={18} />
                     Saltar zona {zona}
                   </button>
@@ -682,6 +709,7 @@ export default function Lecturas({
                   className="boton peligro ancho"
                   disabled={
                     ocupado ||
+                    (iniciando && (!captura || captura.estado === "cerrando")) ||
                     (sesion.fase === "captura" &&
                       (!conectado || !captura || captura.estado === "cerrando"))
                   }
@@ -729,7 +757,7 @@ export default function Lecturas({
                 ejecutando={
                   sesion.fase === "captura" && captura?.estado === "grabando"
                 }
-                onReordenar={(zonas) => actualizar({ zonas })}
+                onReordenar={!bloqueado && sesion.fase === "esperando" ? (zonas) => actualizar({ zonas }) : undefined}
               />
               <div className="leyenda-zonas">
                 <span>

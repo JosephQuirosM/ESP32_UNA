@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
+from cuadricula import cuadricula_de_filas, comprobar_zonas, agregar_argumentos, desde_argumentos
+
 from mvp_config import (
     COLUMNAS_CARACTERISTICAS,
     MAC_A_CARACTERISTICA,
@@ -24,7 +26,7 @@ COLUMNAS_REQUERIDAS = {
 COLUMNAS_SALIDA = (
     "sesion_gateway", "jugador_id", "sesion_jugador", "secuencia", "elapsed_s",
     "zona", "dataset", "archivo_origen", *COLUMNAS_CARACTERISTICAS,
-    "faltantes", "completo",
+    "faltantes", "completo", "cuadricula",
 )
 
 
@@ -36,10 +38,14 @@ def _clave_sesion(fila: dict[str, str]) -> tuple[int, int, int]:
     return (int(fila["sesion_gateway"]), int(fila["jugador_id"]), int(fila["sesion_jugador"]))
 
 
-def construir_muestras(filas: Iterable[dict[str, str]], zona: int | None, dataset: str = "", archivo_origen: str = "") -> tuple[list[dict[str, object]], dict[str, int]]:
+def construir_muestras(filas: Iterable[dict[str, str]], zona: int | None, dataset: str = "", archivo_origen: str = "", cuadricula: dict | None = None) -> tuple[list[dict[str, object]], dict[str, int]]:
     """Agrupa RSSI por secuencia en una zona explícita, sin recortes temporales."""
     if zona is not None and (not isinstance(zona, int) or isinstance(zona, bool) or zona < 1):
         raise ValueError("zona debe ser un entero positivo")
+    filas = list(filas)
+    cuadricula = cuadricula_de_filas(filas, cuadricula)
+    if zona is not None:
+        comprobar_zonas([zona], cuadricula)
     filas_parseadas: list[tuple[datetime, dict[str, str]]] = []
     for numero, fila in enumerate(filas, start=2):
         try:
@@ -74,6 +80,7 @@ def construir_muestras(filas: Iterable[dict[str, str]], zona: int | None, datase
                 "sesion_jugador": clave_sesion[2], "secuencia": clave[-1],
                 "elapsed_s": elapsed_s, "zona": zona,
                 "dataset": dataset, "archivo_origen": archivo_origen,
+                "cuadricula": json.dumps(cuadricula, separators=(",", ":")) if cuadricula else "",
             },
         )
         columna = MAC_A_CARACTERISTICA[normalizar_mac(fila["mac_torre"])]
@@ -155,12 +162,18 @@ def guardar_muestras(salida: Path, muestras: list[dict[str, object]]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    agregar_argumentos(parser)
     parser.add_argument("entradas", nargs="+", type=Path, help="CSV por zona o carpetas Cleaned (sin búsqueda recursiva)")
     parser.add_argument("--zona", type=int, help="Zona de todos los CSV de entrada, si no está en sus nombres")
     parser.add_argument("--salida", type=Path, required=True, help="CSV de vectores procesados")
     parser.add_argument("--resumen", type=Path, help="JSON de trazabilidad del preprocesamiento")
     args = parser.parse_args()
     muestras, resumen = leer_y_preprocesar(args.entradas, zona=args.zona)
+    geometria = cuadricula_de_filas(muestras, desde_argumentos(args))
+    comprobar_zonas([int(m["zona"]) for m in muestras], geometria)
+    if geometria:
+        for muestra in muestras:
+            muestra["cuadricula"] = json.dumps(geometria, separators=(",", ":"))
     guardar_muestras(args.salida, muestras)
     if args.resumen:
         args.resumen.parent.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,8 @@
+import type { GeometriaCuadricula } from "./cuadricula";
 import { useEffect, useState } from "react";
 import { Activity, CheckCircle2, Download, FileText, FolderOpen, LoaderCircle, Play, Settings2 } from "lucide-react";
 
-type Resumen = { entrada: string; filas: number; vectores_completos: number; vectores_incompletos: number; zonas: number[]; por_zona: Record<string, number> };
+type Resumen = { cuadricula?: GeometriaCuadricula | null; entrada: string; filas: number; vectores_completos: number; vectores_incompletos: number; zonas: number[]; por_zona: Record<string, number> };
 type Trabajo = { entrada?: string; nombre?: string; directorioSalida?: string; parametros?: Record<string, string | number | boolean | null>; id: string; estado: "pendiente" | "entrenando" | "completado" | "error"; error?: string; rutaModelo?: string; rutaResumen?: string; algoritmo?: string; resumen?: Resumen; duracion_segundos?: number; descarga?: string; resumenDescarga?: string };
 async function pedir(ruta: string, carga?: unknown) {
   const respuesta = await fetch(`/api/entrenamiento${ruta}`, carga === undefined ? undefined : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(carga) });
@@ -119,7 +120,7 @@ export default function EntrenamientoModelos() {
           <p>Selecciona el CSV generado en Preparación de Datos. El nombre del archivo y su dataset no limitan el entrenamiento.</p>
           <label className="entrenamiento-campo">Archivo CSV en esta PC<input value={entrada} disabled={bloqueado} placeholder="Ruta al archivo etiquetado.csv" onChange={e => { setEntrada(e.target.value); setResumen(null); }} /></label>
           <div className="entrenamiento-acciones"><button className="boton secundario" disabled={bloqueado} onClick={seleccionar}><FolderOpen size={18} /> Seleccionar CSV</button><button className="boton secundario" disabled={bloqueado || !entrada.trim()} onClick={() => void revisar()}>Revisar CSV</button></div>
-          {resumen && <div className="entrenamiento-resumen"><h3><CheckCircle2 size={18} /> CSV listo para entrenar</h3><div className="entrenamiento-cifras"><div><strong>{resumen.vectores_completos}</strong><span>Vectores completos</span></div><div><strong>{resumen.vectores_incompletos}</strong><span>Incompletos, excluidos</span></div><div><strong>{resumen.zonas.length}</strong><span>Zonas presentes</span></div></div><div className="chips">{resumen.zonas.map(z => <span key={z}>Zona {z}: {resumen.por_zona[String(z)]}</span>)}</div></div>}
+          {resumen && <div className="entrenamiento-resumen"><h3><CheckCircle2 size={18} /> CSV listo para entrenar</h3>{resumen.cuadricula ? <p>Cuadrícula: {resumen.cuadricula.filas} × {resumen.cuadricula.columnas} · {resumen.cuadricula.zonas.length} zonas. El modelo conservará este acomodo.</p> : <p>CSV sin geometría. Puedes entrenar sus zonas; define filas y columnas en Preparación o al generar mapas.</p>}<div className="entrenamiento-cifras"><div><strong>{resumen.vectores_completos}</strong><span>Vectores completos</span></div><div><strong>{resumen.vectores_incompletos}</strong><span>Incompletos, excluidos</span></div><div><strong>{resumen.zonas.length}</strong><span>Zonas presentes</span></div></div><div className="chips">{resumen.zonas.map(z => <span key={z}>Zona {z}: {resumen.por_zona[String(z)]}</span>)}</div></div>}
         </section>
         <section className="tarjeta entrenamiento-seccion">
           <h2><Settings2 size={21} /> 2. Configura el modelo</h2>
