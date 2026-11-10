@@ -148,7 +148,8 @@ void prepararRegistro(const EventoTorre &evento, uint32_t ahora) {
                        evento.beacon.sesion_jugador,
                        evento.beacon.secuencia,
                        evento.rssi,
-                       evento.tiempo_recepcion_ms};
+                       evento.tiempo_recepcion_ms,
+                       evento.beacon.movimiento};
   const uint32_t retardo = static_cast<uint32_t>(idTorre) * RETARDO_POR_ID_TORRE_MS +
                             esp_random() % (JITTER_REENVIO_MAX_MS + 1UL);
   tiempoEnvioPendienteMs = evento.tiempo_recepcion_ms + retardo;

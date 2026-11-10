@@ -5,7 +5,9 @@ import {
   Check,
   Clock3,
   FileText,
+  FolderOpen,
   Grid3X3,
+  Gamepad2,
   Info,
   LoaderCircle,
   RefreshCw,
@@ -32,9 +34,10 @@ type Fase =
   | "detenida"
   | "error";
 interface Sesion {
-  modo: "manual" | "guiado";
+  modo: "manual" | "guiado" | "juego";
   nombre: string;
   duracion: string;
+  directorioSalida: string;
   filas: string;
   columnas: string;
   zonas: number[];
@@ -50,6 +53,7 @@ const inicial: Sesion = {
   modo: "guiado",
   nombre: "",
   duracion: "60",
+  directorioSalida: "",
   filas: "3",
   columnas: "3",
   zonas: generarZonas(3, 3),
@@ -69,7 +73,7 @@ function recuperar(): Sesion {
     ) as Sesion | null;
     if (
       !valor ||
-      !["manual", "guiado"].includes(valor.modo) ||
+      !["manual", "guiado", "juego"].includes(valor.modo) ||
       ![
         "configuracion",
         "esperando",
@@ -101,7 +105,7 @@ function recuperar(): Sesion {
       return { ...valor, fase: valor.modo === "guiado" ? "esperando" : "configuracion" };
     if (valor.solicitud && (!valor.captura || valor.captura.estado === "iniciando"))
       return { ...valor, fase: valor.modo === "guiado" ? "esperando" : "configuracion" };
-    return valor;
+    return { ...valor, directorioSalida: typeof valor.directorioSalida === "string" ? valor.directorioSalida : "" };
   } catch {
     return inicial;
   }
@@ -131,6 +135,7 @@ export default function Lecturas({
   const sesionRef = useRef(sesion);
   const [error, setError] = useState("");
   const [ocupado, setOcupado] = useState(false);
+  const [seleccionandoCarpeta, setSeleccionandoCarpeta] = useState(false);
   const ocupadoRef = useRef(false);
   const [sinCrear, setSinCrear] = useState(false);
   const [conexionCaptura, setConexionCaptura] = useState(true);
@@ -260,6 +265,22 @@ export default function Lecturas({
     }
   }
 
+  async function explorarCarpeta() {
+    setSeleccionandoCarpeta(true);
+    setError("");
+    try {
+      const respuesta = await fetch("/api/preparacion/seleccionar-carpeta", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ruta: sesionRef.current.directorioSalida }),
+      });
+      const datos = await respuesta.json();
+      if (!respuesta.ok) throw new Error(datos.error ?? "No se pudo abrir el selector de carpetas.");
+      if (datos.ruta) actualizar({ directorioSalida: datos.ruta });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "No se pudo seleccionar la carpeta.");
+    } finally { setSeleccionandoCarpeta(false); }
+  }
+
   function iniciar(nombreArchivo?: string) {
     const previa = sesionRef.current;
     if (ocupadoRef.current || previa.solicitud) return;
@@ -275,7 +296,8 @@ export default function Lecturas({
       solicitudId,
       nombreArchivo:
         nombreArchivo ?? `${previa.nombre}_zona_${previa.indice + 1}`,
-      duracionSegundos: Number(previa.duracion),
+      duracionSegundos: previa.modo === "juego" ? null : Number(previa.duracion),
+      directorioSalida: previa.directorioSalida.trim(),
       ...(previa.modo === "guiado" ? { cuadricula: {
         filas: Number(previa.filas), columnas: Number(previa.columnas), zonas: [...previa.zonas],
       } } : {}),
@@ -293,7 +315,7 @@ export default function Lecturas({
       );
       return;
     }
-    if (!Number.isInteger(segundos) || segundos < 1 || segundos > 86400) {
+    if (sesion.modo !== "juego" && (!Number.isInteger(segundos) || segundos < 1 || segundos > 86400)) {
       setError("La duración debe estar entre 1 y 86400 segundos enteros.");
       return;
     }
@@ -313,7 +335,7 @@ export default function Lecturas({
       solicitud: null,
       fase: sesion.modo === "guiado" ? "esperando" : "configuracion",
     });
-    if (sesion.modo === "manual") iniciar(nombre);
+    if (sesion.modo !== "guiado") iniciar(nombre);
   }
 
   function cambiarDimensiones(campo: "filas" | "columnas", valor: string) {
@@ -375,7 +397,7 @@ export default function Lecturas({
           <Info size={19} />
           <span>
             Backend local sin conexión. Los archivos ya creados permanecen en
-            esta PC; una captura activa termina por su propio tiempo.
+            esta PC; la captura continúa en el backend. En Juego, reconecta para detenerla.
           </span>
         </div>
       )}
@@ -429,11 +451,22 @@ export default function Lecturas({
                 <Clock3 size={19} />
                 Manual
               </button>
+              <button
+                disabled={bloqueado}
+                aria-pressed={sesion.modo === "juego"}
+                className={sesion.modo === "juego" ? "activo" : ""}
+                onClick={() => actualizar({ modo: "juego" })}
+              >
+                <Gamepad2 size={19} />
+                Juego
+              </button>
             </div>
             <p className="descripcion-modo">
               {sesion.modo === "guiado"
                 ? `Recorre ${total} zonas. Confirma tu posición o salta cada zona antes de grabar.`
-                : "Escribe un nombre, elige una duración y comienza la captura."}
+                : sesion.modo === "juego"
+                  ? "Recolecta las lecturas de todos los jugadores hasta que pulses Detener."
+                  : "Escribe un nombre, elige una duración y comienza la captura."}
             </p>
             <form onSubmit={preparar} noValidate>
               {sesion.modo === "guiado" && (
@@ -495,7 +528,7 @@ export default function Lecturas({
               <small>
                 Letras, números, espacios y guiones. No escribas una ruta.
               </small>
-              <label htmlFor="duracion">
+              {sesion.modo !== "juego" && <><label htmlFor="duracion">
                 {sesion.modo === "guiado" ? "Duración por zona" : "Duración"}
               </label>
               <div className="input-unidad">
@@ -515,7 +548,18 @@ export default function Lecturas({
               </div>
               <small>
                 El receptor controla el tiempo aunque cierres el navegador.
-              </small>
+              </small></>}
+              <label htmlFor="directorio-recoleccion">Carpeta para guardar los CSV en esta PC</label>
+              <div className="preparacion-elegir-ruta">
+                <input id="directorio-recoleccion" value={sesion.directorioSalida}
+                  placeholder="Por defecto: data/raw/" disabled={bloqueado || seleccionandoCarpeta}
+                  onChange={(evento) => actualizar({ directorioSalida: evento.target.value })} />
+                <button type="button" className="boton secundario"
+                  disabled={bloqueado || seleccionandoCarpeta} onClick={() => void explorarCarpeta()}>
+                  <FolderOpen size={18} /> {seleccionandoCarpeta ? "Seleccionando…" : "Explorar"}
+                </button>
+              </div>
+              <small>Déjala vacía para usar la carpeta predeterminada. La carpeta elegida debe existir.</small>
               <div className="vista-nombre">
                 <FileText size={18} />
                 <span>{vistaNombre}</span>
@@ -536,7 +580,7 @@ export default function Lecturas({
               >
                 {sesion.modo === "guiado"
                   ? "Preparar recorrido"
-                  : "Iniciar captura"}
+                  : sesion.modo === "juego" ? "Iniciar juego" : "Iniciar captura"}
                 {iniciando ? <LoaderCircle size={18} className="preparacion-girando" aria-hidden="true" /> : <ArrowRight size={18} />}
               </button>
             </form>
@@ -582,15 +626,14 @@ export default function Lecturas({
             ) : (
               <div className="preview-manual">
                 <span className="icono-redondo grande">
-                  <Clock3 size={38} />
+                  {sesion.modo === "juego" ? <Gamepad2 size={38} /> : <Clock3 size={38} />}
                 </span>
-                <strong>Modo Libre</strong>
-                <p>
-                  Una pantalla sencilla con el cronómetro y un botón para
-                  detenerlo.
-                </p>
+                <strong>{sesion.modo === "juego" ? "Modo Juego" : "Modo Libre"}</strong>
+                <p>{sesion.modo === "juego"
+                  ? "Un CSV para todos los jugadores. La grabación continúa hasta pulsar Detener."
+                  : "Una pantalla sencilla con el cronómetro y un botón para detenerlo."}</p>
                 <span className="reloj-preview">
-                  {formatoTiempo(Number.isFinite(segundos) ? segundos : 0)}
+                  {sesion.modo === "juego" ? "Sin límite" : formatoTiempo(Number.isFinite(segundos) ? segundos : 0)}
                 </span>
               </div>
             )}
@@ -598,14 +641,14 @@ export default function Lecturas({
         </div>
       ) : (
         <div
-          className={`layout-captura ${sesion.modo === "manual" ? "solo-manual" : ""}`}
+          className={`layout-captura ${sesion.modo !== "guiado" ? "solo-manual" : ""}`}
         >
           <section className="tarjeta consola">
             <div className="fila">
               <h2>
                 {sesion.modo === "guiado"
                   ? `Zona ${zona} de ${total}`
-                  : "Modo Libre"}
+                  : sesion.modo === "juego" ? "Modo Juego" : "Modo Libre"}
               </h2>
               <span className="badge">
                 {sesion.fase === "esperando"
@@ -619,14 +662,15 @@ export default function Lecturas({
             </div>
             <p className="nombre-sesion">{sesion.nombre}</p>
             <span className="icono-redondo">
-              <Clock3 />
+              {sesion.modo === "juego" ? <Gamepad2 /> : <Clock3 />}
             </span>
             <div
               className="temporizador"
               role="timer"
-              aria-label="Tiempo restante"
+              aria-label={sesion.modo === "juego" ? "Tiempo transcurrido" : "Tiempo restante"}
             >
-              {formatoTiempo(
+              {sesion.modo === "juego" ? formatoTiempo(captura?.inicioUtc
+                ? (instanteReloj - Date.parse(captura.inicioUtc)) / 1000 : 0) : formatoTiempo(
                 sesion.fase === "esperando"
                   ? segundos
                   : sesion.fase === "completada"
@@ -640,14 +684,16 @@ export default function Lecturas({
                 : sesion.fase === "captura"
                   ? captura?.estado === "cerrando"
                     ? "Cerrando el CSV y conservando los registros aceptados…"
-                    : "El tiempo y la escritura están controlados por Python."
+                    : sesion.modo === "juego"
+                      ? "Grabando a todos los jugadores hasta que pulses Detener."
+                      : "El tiempo y la escritura están controlados por Python."
                   : sesion.fase === "completada"
                     ? "Recorrido finalizado."
                     : sesion.fase === "error"
                       ? "La captura encontró un error. Revisa el resultado antes de continuar."
                       : "Recolección detenida. Los datos registrados se conservan."}
             </p>
-            {sesion.fase === "captura" && captura?.inicioUtc && (
+            {sesion.modo !== "juego" && sesion.fase === "captura" && captura?.inicioUtc && (
               <progress
                 value={Math.max(0, segundos - restante)}
                 max={segundos}
@@ -672,8 +718,8 @@ export default function Lecturas({
             )}
             {!conexionCaptura && (
               <p className="error">
-                Sin conexión para consultar el estado. Python termina la captura
-                por tiempo. Reconecta antes de iniciar otra.
+                Sin conexión para consultar el estado. Reconecta para detener
+                la captura o iniciar otra.
               </p>
             )}
             <div className="acciones-consola">

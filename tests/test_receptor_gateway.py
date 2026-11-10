@@ -31,6 +31,7 @@ REGISTRO = {
     "sesion_jugador": 789,
     "secuencia": 42,
     "rssi": -61,
+    "movimiento": 2,
 }
 
 
@@ -53,6 +54,8 @@ class PruebasReceptorGateway(unittest.TestCase):
             with self.subTest(registro=registro):
                 with self.assertRaises(ValueError):
                     validar_registro(registro)
+        legado = {k: v for k, v in REGISTRO.items() if k != "movimiento"}
+        self.assertEqual(validar_registro(legado)["movimiento"], "")
 
     def test_post_crea_csv_v3_y_cerrar_drena_lotes(self):
         with tempfile.TemporaryDirectory() as temporal:
@@ -81,6 +84,7 @@ class PruebasReceptorGateway(unittest.TestCase):
                 filas = list(csv.DictReader(archivo))
             self.assertEqual(len(filas), 2)
             self.assertEqual(filas[0]["rssi"], "-61")
+            self.assertEqual(filas[0]["movimiento"], "2")
             self.assertEqual(filas[0]["sesion_gateway"], "456")
             self.assertEqual(filas[0]["sesion_torre"], "321")
             self.assertTrue(filas[0]["timestamp_utc_pc"].endswith("Z"))

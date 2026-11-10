@@ -41,6 +41,7 @@ COLUMNAS_CSV = [
     "sesion_jugador",
     "secuencia",
     "rssi",
+    "movimiento",
 ]
 
 
@@ -73,6 +74,7 @@ def validar_registro(registro: Any) -> dict[str, int | str]:
         "sesion_jugador": _entero_en_rango(registro, "sesion_jugador", 1, MAXIMO_UINT32),
         "secuencia": _entero_en_rango(registro, "secuencia", 1, MAXIMO_UINT32),
         "rssi": _entero_en_rango(registro, "rssi", -127, 0),
+        "movimiento": _entero_en_rango(registro, "movimiento", 0, 2) if "movimiento" in registro else "",
     }
     mac = registro.get("mac_torre")
     if not isinstance(mac, str) or not re.fullmatch(r"[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}", mac):

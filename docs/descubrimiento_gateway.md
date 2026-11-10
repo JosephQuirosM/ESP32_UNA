@@ -51,7 +51,7 @@ El receptor independiente por CLI implementa el mismo control en `python/control
 
 ## Actualización y prueba física
 
-Sólo se recarga el firmware del Gateway para este cambio. Jugador, torres y contrato ESP-NOW v3 se mantienen. Un Gateway sin `controlCaptura: 1` produce un error que solicita actualizarlo; no se utiliza un modo de captura antiguo silenciosamente. El sufijo V1 del anuncio, V3 del control UDP y `/v1/registros` son identificadores de contratos diferentes.
+Sólo se recarga el firmware del Gateway para este cambio. Jugador, torres y contrato ESP-NOW es v4 con movimiento del jugador. Un Gateway sin `controlCaptura: 1` produce un error que solicita actualizarlo; no se utiliza un modo de captura antiguo silenciosamente. El sufijo V1 del anuncio, V3 del control UDP y `/v1/registros` son identificadores de contratos diferentes.
 
 Permita UDP 4210 y HTTP 8080 desde el hotspot; HTTP 8000 sirve frontend y API. El backend no crea el hotspot. El LED verde confirma control válido de la PC, incluso con captura desactivada; no demuestra escritura CSV.
 

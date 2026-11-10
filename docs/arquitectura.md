@@ -40,7 +40,7 @@ Los puertos son valores iniciales configurables. En desarrollo Vite escucha en 5
 
 ## Firmware y contrato de radio
 
-`firmware/Comun/Paquete.h` es el contrato binario: estructuras empaquetadas con firma `0x484D`, versión 3 y tipo. Se validan longitud, firma, versión y tipo antes de interpretar el paquete. Los tipos son `ANUNCIO_GATEWAY`, `REGISTRO_NODO`, `ASIGNACION_ID`, `BEACON_JUGADOR` y `REGISTRO_TORRE`.
+`firmware/Comun/Paquete.h` es el contrato binario: estructuras empaquetadas con firma `0x484D`, versión 4 y tipo. Se validan longitud, firma, versión y tipo antes de interpretar el paquete. Los tipos son `ANUNCIO_GATEWAY`, `REGISTRO_NODO`, `ASIGNACION_ID`, `BEACON_JUGADOR` y `REGISTRO_TORRE`.
 
 - **Jugador:** solicita registro cada 3 s. Con ID asignado emite un beacon cada 500 ms más un jitter aleatorio de 0–100 ms. Cada arranque genera una sesión no nula y las secuencias avanzan por beacon.
 - **Torre:** copia el beacon, el RSSI de `rx_ctrl` y el instante local a una cola desde el callback. En `loop` construye el registro y programa el unicast con `id_torre × 8 ms` más jitter de 0–7 ms desde la recepción. Mantiene un registro pendiente y espera el callback de envío antes de transmitir otro. Si falla iniciar el envío, reintenta tras 10 ms; un fallo informado por el callback se contabiliza, sin retransmisión de aplicación de ese registro.
@@ -64,15 +64,15 @@ El Gateway descarta RSSI mientras está inactivo y limpia sus pendientes entre a
 
 ## Contrato CSV y formación del vector
 
-El CSV v3 contiene estas columnas, en este orden:
+El CSV v4 contiene estas columnas, en este orden:
 
 ```text
 timestamp_utc_pc,sesion_gateway,tiempo_gateway_recepcion_ms,tiempo_torre_ms,
 torre_id,sesion_torre,secuencia_torre_tx,mac_torre,jugador_id,
-sesion_jugador,secuencia,rssi
+sesion_jugador,secuencia,rssi,movimiento
 ```
 
-Las capturas guiadas nuevas añaden la columna `cuadricula`, un JSON `{filas, columnas, zonas}` con el acomodo visual por celdas. El Gateway no envía ese campo; Express lo pasa al receptor al iniciar la captura. Las capturas manuales o clientes anteriores pueden seguir produciendo sólo las doce columnas base.
+Las capturas guiadas nuevas añaden la columna `cuadricula`, un JSON `{filas, columnas, zonas}` con el acomodo visual por celdas. El Gateway no envía ese campo; Express lo pasa al receptor al iniciar la captura. Las capturas manuales o clientes anteriores pueden seguir produciendo las doce columnas históricas o las trece columnas con movimiento.
 
 `timestamp_utc_pc` se añade al admitir la lectura en el receptor. Los tiempos `*_ms` pertenecen a relojes locales de arranque; no son relojes sincronizados entre placas. Las sesiones permiten distinguir reinicios.
 
@@ -147,3 +147,10 @@ Los CLI de preparación, entrenamiento KNN/Random Forest y reproducción aceptan
 Los mapas web separan por `(sesion_gateway, jugador_id)` para no unir IDs reasignados después de un reinicio del Gateway. Los CSV separados conservan columnas, valores y duplicados, ordenados numéricamente por sesión del jugador, secuencia y `torre_id`. La MAC física define las características; el ID dinámico sólo ordena las filas. Un resultado sin vectores completos conserva CSV/estadísticas y no produce imagen.
 
 El resumen general (CSV y JSON) contiene una fila por resultado. Por sesión del jugador se estima el rango `max(secuencia) − min(secuencia) + 1`, y después se suman esos rangos. La recepción es paquetes únicos / (rango × 4); el porcentaje de vectores completos es secuencias con las cuatro torres / rango. Incluye secuencias totalmente ausentes; los duplicados se conservan pero no inflan porcentajes. Estos valores sólo describen el tramo observado y no identifican en qué enlace se perdió información. Con entradas preparadas, las métricas que requieren paquetes crudos quedan no disponibles. El flujo CLI de reproducción conserva su comportamiento anterior.
+
+
+## Sensores opcionales del jugador
+
+`firmware/Jugador/config.h` define `SENSOR_LIGHT_BLOCKING_PRESENTE`, su pin/polaridad y los pines y umbral del MPU6050. Con el Light Blocking habilitado, el jugador se registra normalmente en el Gateway, pero sólo envía beacons con tarjeta presente; una ausencia continua por 2 s pausa el envío y la reinserción lo reanuda. Sin esa función, los beacons mantienen el comportamiento existente. El pin digital no se usa para inferir si el módulo está conectado.
+
+El MPU6050 se busca al arranque por I²C y se lee periódicamente. La variación filtrada de aceleración se compara con un umbral ajustable; movimiento ausente o sensor no detectado se codifica como desconocido. El estado viaja en el beacon v4, se copia al registro RSSI de cada torre y llega a la columna `movimiento` del CSV. Los CSV anteriores no incluyen esta columna; los lectores actuales pueden seguir usando sus campos históricos.

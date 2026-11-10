@@ -4,7 +4,7 @@ Revisión documental: 4 de noviembre de 2026. Estado basado en el código y las 
 
 ## Implementado
 
-- Firmware v3 para un jugador, cuatro torres y un Gateway IdeaBoard ESP32, con sesiones de arranque, IDs por MAC y validación de paquetes.
+- Firmware v4 para un jugador, cuatro torres y un Gateway IdeaBoard ESP32, con sesiones de arranque, IDs por MAC y validación de paquetes.
 - Beacons broadcast, control broadcast y registros RSSI unicast escalonados, con colas acotadas y contadores de fallos/descartes.
 - Gateway como estación del hotspot de la PC, descubrimiento iniciado por UDP broadcast y respuesta unicast del backend. Entrega HTTP por lotes con reintentos.
 - Recolección web manual y guiada, un CSV por captura, duración controlada por Python, parada, idempotencia, recuperación y descarga de resultados parciales.
@@ -31,3 +31,5 @@ El 4 de noviembre de 2026 pasaron 34 pruebas Python, 18 pruebas del backend y la
 La arquitectura y los contratos completos se describen en [arquitectura.md](arquitectura.md). Las ampliaciones se registran en el [roadmap](../ROADMAP_CODEX_MAPA_CALOR_ESP32.md).
 
 Se compiló Gateway con `arduino-cli`, FQBN `esp32:esp32:esp32` y core ESP32 3.3.11. No había placas conectadas: queda pendiente la comprobación física con logs y dos zonas consecutivas. El aislamiento, recuperación y spinner se verifican con Gateway simulado; las pruebas de la máquina de estados compilan y ejecutan el encabezado real del firmware con g++.
+
+- Protocolo ESP-NOW v4 en desarrollo: estado MPU6050 propagado hasta CSV y control opcional de beacons por Light Blocking, sin desregistrar al jugador.

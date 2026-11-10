@@ -6,7 +6,7 @@
 // Todas las estructuras de radio usan el mismo formato para evitar que los
 // nodos interpreten paquetes de otra versión del protocolo como válidos.
 constexpr uint16_t FIRMA_PAQUETE = 0x484D;  // "HM" de Heat Map.
-constexpr uint8_t VERSION_PROTOCOLO = 3;
+constexpr uint8_t VERSION_PROTOCOLO = 4;
 constexpr uint8_t ID_SIN_ASIGNAR = 0;
 constexpr size_t TAMANO_MAC = 6;
 
@@ -55,6 +55,7 @@ struct __attribute__((packed)) PaqueteBeaconJugador {
   uint32_t sesion_jugador;
   uint32_t secuencia;
   uint32_t tiempo_jugador_ms;
+  uint8_t movimiento;  // 0 desconocido, 1 detenido, 2 caminando.
 };
 
 struct __attribute__((packed)) PaqueteRegistroTorre {
@@ -67,6 +68,7 @@ struct __attribute__((packed)) PaqueteRegistroTorre {
   uint32_t secuencia;
   int8_t rssi;
   uint32_t tiempo_torre_ms;
+  uint8_t movimiento;
 };
 
 inline EncabezadoPaquete crearEncabezado(TipoPaquete tipo) {

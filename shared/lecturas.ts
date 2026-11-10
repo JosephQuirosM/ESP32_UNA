@@ -4,7 +4,8 @@ export type EstadoCaptura =
 export interface SolicitudLectura {
   solicitudId: string;
   nombreArchivo: string;
-  duracionSegundos: number;
+  duracionSegundos: number | null; // null: captura Juego hasta que el administrador la detenga.
+  directorioSalida?: string;
   cuadricula?: GeometriaCuadricula;
 }
 export interface Captura extends SolicitudLectura {

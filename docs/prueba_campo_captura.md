@@ -2,12 +2,12 @@
 
 ## Objetivo
 
-Obtener CSV v3 con procedencia y etiquetas fiables para entrenar y evaluar clasificadores RSSI. La geometría física documentada es 6 m × 2,5 m, con cuatro torres y preset de cuadrícula 3×3. El administrador puede configurar otras dimensiones desde el frontend (hasta 20×20); sus posiciones se conservan hasta el mapa. Registre la geometría realmente utilizada en cada campaña.
+Obtener CSV v4 con procedencia y etiquetas fiables para entrenar y evaluar clasificadores RSSI. La geometría física documentada es 6 m × 2,5 m, con cuatro torres y preset de cuadrícula 3×3. El administrador puede configurar otras dimensiones desde el frontend (hasta 20×20); sus posiciones se conservan hasta el mapa. Registre la geometría realmente utilizada en cada campaña.
 
 ## Antes de iniciar
 
 1. Monte el área y mantenga las torres inmóviles. Verifique [mapa_torres_fisicas.md](mapa_torres_fisicas.md) y su correspondencia con `python/mvp_config.py`.
-2. Cargue el firmware v3 en las seis placas. Revise las credenciales del hotspot y el mismo canal en todos los `config.h`.
+2. Cargue el firmware compatible v4 en las seis placas. Revise las credenciales del hotspot y el mismo canal en todos los `config.h`.
 3. Active el hotspot de la PC en 2.4 GHz, canal 6 por defecto. El Gateway se conecta como estación; no crea la red.
 4. Para la captura web, compile con `npm run build`, levante `npm start` y abra `http://localhost:8000`. Encienda el Gateway y espere «Comunicando con la PC»; después encienda torres y jugador.
 5. Confirme IDs distintos por rol, `gateway_unicast=si` en las torres y contadores de recepción en Gateway. Guarde logs seriales del Gateway y de las cuatro torres en `data/logs/`.

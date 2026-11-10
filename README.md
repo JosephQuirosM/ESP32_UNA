@@ -1,6 +1,6 @@
 # MVP: mapa de calor RSSI con ESP32
 
-Este repositorio implementa el MVP de un mapa de calor RSSI: 1 jugador, 4 torres ESP32 y 1 Gateway. Incluye firmware ESP-NOW v3, una aplicación local React/Express y procesos Python para captura CSV, preparación, entrenamiento KNN/Random Forest y mapas de predicción. Los datasets, modelos y resultados generados se excluyen de Git; pueden existir en la copia local.
+Este repositorio implementa el MVP de un mapa de calor RSSI: 1 jugador, 4 torres ESP32 y 1 Gateway. Incluye firmware ESP-NOW v4, una aplicación local React/Express y procesos Python para captura CSV, preparación, entrenamiento KNN/Random Forest y mapas de predicción. Los datasets, modelos y resultados generados se excluyen de Git; pueden existir en la copia local.
 
 ## Arquitectura
 
@@ -15,7 +15,7 @@ Navegador React <-- HTTP /api :8000 --> PC/backend Express --> procesos Python
 CSV --> vectores RSSI --> KNN / Random Forest --> predicciones y mapa PNG
 ```
 
-La PC crea el hotspot Wi-Fi y el Gateway se conecta a él como estación, con el nombre y la clave de `firmware/Gateway/config.h`. El hotspot debe usar 2.4 GHz y el mismo canal ESP-NOW que Gateway, torres y jugador (6 por defecto). El Gateway anuncia su presencia cada dos segundos al broadcast calculado de su red. El backend de la PC escucha UDP 4210 y responde por unicast; para una captura preparada autoriza su UUID y puerto HTTP, espera el ACK de limpieza y apertura, y después inicia la duración del receptor, que recibe lotes JSON v3 en `/v1/registros`. No es necesario configurar el broadcast en la PC para usar la interfaz web. El protocolo ESP-NOW también es v3; los seis dispositivos deben tener esta misma versión cargada.
+La PC crea el hotspot Wi-Fi y el Gateway se conecta a él como estación, con el nombre y la clave de `firmware/Gateway/config.h`. El hotspot debe usar 2.4 GHz y el mismo canal ESP-NOW que Gateway, torres y jugador (6 por defecto). El Gateway anuncia su presencia cada dos segundos al broadcast calculado de su red. El backend de la PC escucha UDP 4210 y responde por unicast; para una captura preparada autoriza su UUID y puerto HTTP, espera el ACK de limpieza y apertura, y después inicia la duración del receptor, que recibe lotes JSON v3 en `/v1/registros`. No es necesario configurar el broadcast en la PC para usar la interfaz web. El protocolo ESP-NOW también es v4; los seis dispositivos deben tener esta misma versión cargada.
 
 > Documentación vigente: [arquitectura y contratos](docs/arquitectura.md), [contexto del proyecto](docs/contexto.md) y [estado de implementación](docs/avances.md). La geometría física documentada es 6 m × 2,5 m; compruebe la geometría y procedencia de cada campaña antes de usar sus datos.
 
@@ -65,7 +65,7 @@ python3 python/receptor_gateway.py --archivo data/raw/captura_YYYY-MM-DD_HHMM.cs
 
 El receptor independiente escucha HTTP en 8080 y los anuncios del Gateway en UDP 4210. Responde al ESP32 por unicast, sin necesidad de configurar una IP ni un broadcast. No ejecute esta alternativa junto con el backend: ambos necesitan el puerto UDP. El CLI también exige la confirmación de limpieza y apertura antes de iniciar su plazo. El modo `--anuncio-udp-legacy` ya no se admite: actualice el Gateway.
 
-El Gateway recibe su IP por DHCP y reintenta conectarse al hotspot cada diez segundos. Si el canal no coincide, informa el error por serial y no inicia el envío de registros; ajuste el canal y reconecte. Para detener el receptor, use `Ctrl+C`; HTTP, UDP y el CSV se cierran de forma ordenada. El CSV v3 conserva sesiones, secuencias, tiempos locales y hora UTC de la PC. No anexe una captura v3 a un CSV v2.
+El Gateway recibe su IP por DHCP y reintenta conectarse al hotspot cada diez segundos. Si el canal no coincide, informa el error por serial y no inicia el envío de registros; ajuste el canal y reconecte. Para detener el receptor, use `Ctrl+C`; HTTP, UDP y el CSV se cierran de forma ordenada. El CSV v4 conserva sesiones, secuencias, tiempos locales, hora UTC de la PC y estado de movimiento. Los CSV históricos sin la columna de movimiento siguen siendo válidos. No anexe una captura v4 a un CSV v3.
 
 Después de instalar las dependencias de análisis en `.venv`, ejecute las pruebas locales con:
 
@@ -196,6 +196,6 @@ Los scripts de preparación, KNN, Random Forest y reproducción recuperan la col
 
 ## Capturas aisladas en el Gateway
 
-El control UDP V3 identifica cada captura con su UUID y una revisión persistida. Sin autorización el Gateway escucha radio, pero descarta RSSI y mantiene vacíos la cola y el lote HTTP. Cada captura nueva limpia los pendientes antes de confirmar; una renovación de la misma orden no los elimina. El HTTP añade `X-Heatmap-Captura` y Python rechaza IDs anteriores. No hay órdenes nuevas para jugador ni torres y ESP-NOW sigue siendo v3; sí debe recargarse el firmware Gateway actualizado.
+El control UDP V3 identifica cada captura con su UUID y una revisión persistida. Sin autorización el Gateway escucha radio, pero descarta RSSI y mantiene vacíos la cola y el lote HTTP. Cada captura nueva limpia los pendientes antes de confirmar; una renovación de la misma orden no los elimina. El HTTP añade `X-Heatmap-Captura` y Python rechaza IDs anteriores. No hay órdenes de captura nuevas para jugador ni torres. El paquete ESP-NOW v4 añade el movimiento; los tres tipos de placa deben actualizarse juntos.
 
 En manual y guiado el formulario permanece visible con el botón deshabilitado y un spinner hasta confirmar. Si no hay confirmación en 10 s se informa un error y se conservan los archivos fallidos. Las pausas entre zonas desactivan el Gateway. El límite es la recepción en Gateway; las torres conservan sus propios tiempos y pequeñas colas.

@@ -4,6 +4,10 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
+  realpathSync,
+  statSync,
+  accessSync,
+  constants,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -68,7 +72,7 @@ export function fechaArchivo(fecha: Date, zonaHoraria: string): string {
 export function validarSolicitud(carga: unknown): SolicitudLectura {
   if (!carga || typeof carga !== "object")
     throw new ErrorPeticion(400, "Se espera un formulario válido.");
-  const { solicitudId, nombreArchivo, duracionSegundos } =
+  const { solicitudId, nombreArchivo, duracionSegundos, directorioSalida } =
     carga as Partial<SolicitudLectura>;
   if (typeof solicitudId !== "string" || !/^[\w-]{8,100}$/.test(solicitudId))
     throw new ErrorPeticion(400, "Identificador de solicitud inválido.");
@@ -85,22 +89,27 @@ export function validarSolicitud(carga: unknown): SolicitudLectura {
       400,
       "El nombre debe contener letras, números, espacios o guiones, sin rutas ni puntos.",
     );
-  if (
+  if (duracionSegundos !== null && (
     typeof duracionSegundos !== "number" ||
     !Number.isInteger(duracionSegundos) ||
     duracionSegundos < 1 ||
     duracionSegundos > 86400
-  )
+  ))
     throw new ErrorPeticion(
       400,
-      "La duración debe ser un entero entre 1 y 86400 segundos.",
+      "La duración debe ser un entero entre 1 y 86400 segundos, o null para el modo Juego.",
     );
+  if (directorioSalida !== undefined &&
+      (typeof directorioSalida !== "string" || directorioSalida.includes("\0") || directorioSalida.length > 4096))
+    throw new ErrorPeticion(400, "Indica una carpeta de salida válida.");
   let cuadricula: GeometriaCuadricula | undefined;
   if ("cuadricula" in carga && carga.cuadricula !== undefined) {
     try { cuadricula = validarCuadricula(carga.cuadricula); }
     catch (error) { throw new ErrorPeticion(400, (error as Error).message); }
   }
-  return { solicitudId, nombreArchivo: nombre, duracionSegundos, ...(cuadricula ? { cuadricula } : {}) };
+  return { solicitudId, nombreArchivo: nombre, duracionSegundos,
+    ...(directorioSalida?.trim() ? { directorioSalida: directorioSalida.trim() } : {}),
+    ...(cuadricula ? { cuadricula } : {}) };
 }
 
 /** Administra una captura independiente y conserva su resultado en el disco local. */
@@ -299,16 +308,29 @@ export class GestorLecturas {
       (captura) => captura.solicitudId === solicitud.solicitudId,
     );
     if (anterior) {
+      const rutaSolicitada = solicitud.directorioSalida
+        ? resolve(this.configuracion.raiz, solicitud.directorioSalida)
+        : this.configuracion.directorioDatos;
+      const rutaComparable = existsSync(rutaSolicitada) ? realpathSync(rutaSolicitada) : rutaSolicitada;
       if (
         anterior.nombreArchivo !== solicitud.nombreArchivo ||
         anterior.duracionSegundos !== solicitud.duracionSegundos ||
-        JSON.stringify(anterior.cuadricula) !== JSON.stringify(solicitud.cuadricula)
+        JSON.stringify(anterior.cuadricula) !== JSON.stringify(solicitud.cuadricula) ||
+        resolve(anterior.directorioSalida || this.configuracion.directorioDatos) !== rutaComparable
       )
         throw new ErrorPeticion(
           409,
           "Esta solicitud ya fue utilizada con otros parámetros.",
         );
       return this.presentar(anterior);
+    }
+    let directorioSalida: string;
+    try {
+      directorioSalida = realpathSync(resolve(this.configuracion.raiz, solicitud.directorioSalida || this.configuracion.directorioDatos));
+      if (!statSync(directorioSalida).isDirectory()) throw new Error();
+      accessSync(directorioSalida, constants.W_OK);
+    } catch {
+      throw new ErrorPeticion(400, "La carpeta de recolección no existe o no permite escribir archivos.");
     }
     if (this.cerrando)
       throw new ErrorPeticion(503, "El backend se está cerrando.");
@@ -322,14 +344,16 @@ export class GestorLecturas {
     let archivo = `${base}.csv`,
       sufijo = 2;
     while (
-      existsSync(join(this.configuracion.directorioDatos, archivo)) ||
+      existsSync(join(directorioSalida, archivo)) ||
       [...this.registros.values()].some(
-        (captura) => captura.archivo === archivo,
+        (captura) => captura.archivo === archivo &&
+          resolve(captura.directorioSalida || this.configuracion.directorioDatos) === directorioSalida,
       )
     )
       archivo = `${base}_${sufijo++}.csv`;
     const captura: Captura = {
       ...solicitud,
+      directorioSalida,
       id: randomUUID(),
       archivo,
       estado: "iniciando",
@@ -351,7 +375,7 @@ export class GestorLecturas {
       "-u",
       join(cfg.raiz, "python/receptor_gateway.py"),
       "--archivo",
-      join(cfg.directorioDatos, archivo),
+      join(directorioSalida, archivo),
       "--host",
       cfg.host,
       "--puerto-http",
@@ -360,8 +384,6 @@ export class GestorLecturas {
       cfg.destinoUdp,
       "--puerto-udp",
       String(cfg.puertoUdp),
-      "--duracion",
-      String(solicitud.duracionSegundos),
       "--control-json",
       "--captura-id", captura.id,
       "--esperar-inicio",
@@ -373,6 +395,7 @@ export class GestorLecturas {
       "--detener-archivo",
       this.rutaParada(captura.id),
     ];
+    if (solicitud.duracionSegundos !== null) argumentos.push("--duracion", String(solicitud.duracionSegundos));
     if (solicitud.cuadricula) argumentos.push("--cuadricula-json", JSON.stringify(solicitud.cuadricula));
     const hijo = spawn(cfg.python, argumentos, {
       cwd: cfg.raiz,
@@ -443,7 +466,7 @@ export class GestorLecturas {
         409,
         "Espera a que el archivo termine de cerrarse.",
       );
-    const ruta = join(this.configuracion.directorioDatos, captura.archivo);
+    const ruta = join(captura.directorioSalida || this.configuracion.directorioDatos, captura.archivo);
     if (!existsSync(ruta))
       throw new ErrorPeticion(404, "Esta captura no llegó a crear un CSV.");
     return { ruta, nombre: captura.archivo };

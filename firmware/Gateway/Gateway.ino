@@ -407,7 +407,7 @@ String registroAJson(const EventoRegistro &evento) {
   const PaqueteRegistroTorre &registro = evento.registro;
   char texto[384];
   snprintf(texto, sizeof(texto),
-           "{\"sesion_gateway\":%lu,\"tiempo_gateway_recepcion_ms\":%lu,\"tiempo_torre_ms\":%lu,\"torre_id\":%u,\"sesion_torre\":%lu,\"secuencia_torre_tx\":%lu,\"mac_torre\":\"%02X:%02X:%02X:%02X:%02X:%02X\",\"jugador_id\":%u,\"sesion_jugador\":%lu,\"secuencia\":%lu,\"rssi\":%d}",
+           "{\"sesion_gateway\":%lu,\"tiempo_gateway_recepcion_ms\":%lu,\"tiempo_torre_ms\":%lu,\"torre_id\":%u,\"sesion_torre\":%lu,\"secuencia_torre_tx\":%lu,\"mac_torre\":\"%02X:%02X:%02X:%02X:%02X:%02X\",\"jugador_id\":%u,\"sesion_jugador\":%lu,\"secuencia\":%lu,\"rssi\":%d,\"movimiento\":%u}",
            static_cast<unsigned long>(sesionGateway),
            static_cast<unsigned long>(evento.tiempo_gateway_recepcion_ms),
            static_cast<unsigned long>(registro.tiempo_torre_ms), registro.id_torre,
@@ -416,7 +416,7 @@ String registroAJson(const EventoRegistro &evento) {
            evento.mac_origen[0], evento.mac_origen[1], evento.mac_origen[2],
            evento.mac_origen[3], evento.mac_origen[4], evento.mac_origen[5],
            registro.id_jugador, static_cast<unsigned long>(registro.sesion_jugador),
-           static_cast<unsigned long>(registro.secuencia), registro.rssi);
+           static_cast<unsigned long>(registro.secuencia), registro.rssi, registro.movimiento);
   return String(texto);
 }
 
