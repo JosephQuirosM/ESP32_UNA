@@ -18,5 +18,6 @@ constexpr int PIN_I2C_SCL_MPU = 22;
 constexpr uint8_t DIRECCION_MPU6050 = 0x68;
 constexpr uint32_t INTERVALO_MUESTREO_MPU_MS = 50;
 constexpr uint16_t TIMEOUT_I2C_MPU_MS = 10;
+constexpr uint32_t INTERVALO_RECONEXION_MPU_MS = 2000;
 constexpr float UMBRAL_MOVIMIENTO_MPU = 0.18f;  // g de variación entre muestras.
 constexpr float FACTOR_FILTRO_MPU = 0.25f;

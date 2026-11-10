@@ -318,6 +318,7 @@ void actualizarDestinoPc() {
   puertoHttpPc = controlCaptura.puerto(millis());
   venceDestinoPcMs = millis() + VIGENCIA_DESTINO_PC_MS;
   led.fijo(VERDE);
+  led.latido(250);
   char confirmacion[128];
   snprintf(confirmacion, sizeof(confirmacion), "HEATMAP_ACK_V3 %lu %llu %s %u",
            static_cast<unsigned long>(sesionGateway),
@@ -384,7 +385,7 @@ bool actualizarConexionWifi() {
       canalCompatible = false;
       return false;
     }
-    led.fijo(CIAN);
+    led.fijo(VERDE);
     ultimoAnuncioMs = millis() - INTERVALO_ANUNCIO_GATEWAY_MS;
     Serial.printf("Gateway listo; anunciándose por UDP en %s:%u; sesión=%lu\n",
                   WiFi.broadcastIP().toString().c_str(), PUERTO_DESCUBRIMIENTO_UDP,
@@ -475,6 +476,7 @@ void enviarLotePendiente() {
   ++respuestasHttp;
   cliente.end();
   if (estado >= 200 && estado < 300) {
+    led.latido(250);
     registrosEnviados += cantidadLotePendiente;
     cantidadLotePendiente = 0;
     reintentosLotePendiente = 0;
@@ -516,6 +518,12 @@ void loop() {
   led.actualizar();
   if (!actualizarConexionWifi()) {
     limpiarCaptura(true);
+    if (WiFi.status() == WL_CONNECTED && millis() - ultimoReporteMs >= 5000) {
+      ultimoReporteMs = millis();
+      Serial.printf("Gateway: canal_wifi=%u canal_espnow=%u compatible=%s\n",
+                    static_cast<unsigned int>(WiFi.channel()), CANAL_ESPNOW,
+                    canalCompatible ? "si" : "no");
+    }
     return;
   }
   if (!controlCaptura.activa(millis())) limpiarCaptura(true);
@@ -547,7 +555,7 @@ void loop() {
     Serial.printf(
         "Gateway: control=%lu datos=%lu enviados=%lu descartes_control=%lu "
         "descartes_datos=%lu inválidos=%lu descartes_entrega=%lu fallos_http=%lu "
-        "reintentos=%lu latencia_http_media_ms=%lu destino_pc=%s "
+        "reintentos=%lu latencia_http_media_ms=%lu canal_wifi=%u destino_pc=%s "
         "descartes_inactivos=%lu purgados=%lu captura=%s\n",
         static_cast<unsigned long>(controles),
         static_cast<unsigned long>(datos),
@@ -559,6 +567,7 @@ void loop() {
         static_cast<unsigned long>(fallosHttp), static_cast<unsigned long>(reintentosHttp),
         respuestasHttp == 0 ? 0UL
                             : static_cast<unsigned long>(latenciaHttpAcumuladaMs / respuestasHttp),
+        static_cast<unsigned int>(WiFi.channel()),
         destinoPcDisponible() ? "si" : "no",
         static_cast<unsigned long>(inactivos), static_cast<unsigned long>(registrosPurgados),
         controlCaptura.id());

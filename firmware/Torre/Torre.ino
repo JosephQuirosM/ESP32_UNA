@@ -174,7 +174,7 @@ void procesarReenvio(uint32_t ahora) {
   ++transmisionesIntentadas;
   if (enviarUnicast(macGateway, &registroPendiente, sizeof(registroPendiente))) {
     hayRegistroPendiente = false;
-    led.pulso(CIAN);
+    led.latido(160);
   } else {
     cancelarEnvioEnCurso();
     ++fallosInicioEnvio;

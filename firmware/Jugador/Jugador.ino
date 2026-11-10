@@ -10,6 +10,7 @@
 #include "SensoresJugador.h"
 
 ControlLed led(PIN_LED_RGB);
+constexpr ColorLed ERROR_RADIO_JUGADOR = {180, 0, 255};
 uint8_t idJugador = ID_JUGADOR_RESPALDO;
 uint32_t secuencia = 0;
 uint32_t sesionJugador = 0;
@@ -21,9 +22,11 @@ PaqueteAsignacionId asignacionPendiente = {};
 volatile bool hayAsignacionPendiente = false;
 portMUX_TYPE mutexAsignacion = portMUX_INITIALIZER_UNLOCKED;
 bool mpuDisponible = false;
+bool mpuDetectadoAlgunaVez = false;
 bool enMovimiento = false;
 EstadoTarjeta estadoTarjeta = {!SENSOR_LIGHT_BLOCKING_PRESENTE, false, 0};
 uint32_t ultimoMuestreoMpuMs = 0;
+uint32_t ultimoIntentoMpuMs = 0;
 uint32_t ultimaImpresionMpuMs = 0;
 float variacionFiltrada = 0.0f;
 float aceleracionAnterior[3] = {};
@@ -33,8 +36,8 @@ uint32_t ultimoDiagnosticoTarjetaMs = 0;
 int nivelTarjetaCandidato = -1;
 int nivelTarjetaEstable = -1;
 uint32_t inicioNivelCandidatoMs = 0;
-bool ledTarjetaPausada = SENSOR_LIGHT_BLOCKING_PRESENTE;
-bool ledJugadorListo = false;
+enum class PatronJugador : uint8_t { INICIO, SIN_TARJETA, ESPERANDO_ID, LISTO, MPU_DESCONECTADO };
+PatronJugador patronJugador = PatronJugador::INICIO;
 
 bool leerRegistroMpu(uint8_t registro, uint8_t *datos, size_t cantidad) {
   Wire.beginTransmission(DIRECCION_MPU6050);
@@ -42,6 +45,15 @@ bool leerRegistroMpu(uint8_t registro, uint8_t *datos, size_t cantidad) {
   if (Wire.endTransmission(false) != 0 || Wire.requestFrom(DIRECCION_MPU6050, cantidad) != cantidad) return false;
   for (size_t i=0; i<cantidad; ++i) datos[i]=Wire.read();
   return true;
+}
+
+bool iniciarMpu() {
+  Wire.beginTransmission(DIRECCION_MPU6050);
+  Wire.write(0x6B); // PWR_MGMT_1: salir del modo de suspensión.
+  Wire.write(0);
+  if (Wire.endTransmission() != 0) return false;
+  uint8_t aceleracion[6];
+  return leerRegistroMpu(0x3B, aceleracion, sizeof(aceleracion));
 }
 
 void actualizarTarjeta(uint32_t ahora) {
@@ -84,26 +96,45 @@ void actualizarTarjeta(uint32_t ahora) {
 // Reconcilia el patrón base con la admisión real de beacons. Solo cambia el
 // patrón cuando cambia el estado, para no tapar los pulsos verdes de envío.
 void actualizarLedJugador() {
-  if (!estadoTarjeta.transmitir) {
-    if (!ledTarjetaPausada) {
-      led.intermitente(ROJO, 500);
-      ledTarjetaPausada = true;
-      ledJugadorListo = false;
-    }
-  } else if (idJugador != ID_SIN_ASIGNAR && !ledJugadorListo) {
-    led.fijo(AZUL);
-    ledJugadorListo = true;
-    ledTarjetaPausada = false;
-  }
+  const PatronJugador deseado = mpuDetectadoAlgunaVez && !mpuDisponible
+      ? PatronJugador::MPU_DESCONECTADO
+      : SENSOR_LIGHT_BLOCKING_PRESENTE && nivelTarjetaEstable == -1
+      ? PatronJugador::INICIO
+      : !estadoTarjeta.transmitir ? PatronJugador::SIN_TARJETA
+      : idJugador == ID_SIN_ASIGNAR ? PatronJugador::ESPERANDO_ID : PatronJugador::LISTO;
+  if (deseado == patronJugador) return;
+  patronJugador = deseado;
+  if (deseado == PatronJugador::SIN_TARJETA) led.intermitente(ROJO, 500);
+  else if (deseado == PatronJugador::MPU_DESCONECTADO) led.intermitente(AZUL, 250);
+  else if (deseado == PatronJugador::LISTO) led.fijo(VERDE);
+  else led.intermitente(AMARILLO, 400);
 }
 
 void actualizarMpu(uint32_t ahora) {
-  if (!mpuDisponible || ahora-ultimoMuestreoMpuMs < INTERVALO_MUESTREO_MPU_MS) return;
+  if (!mpuDisponible) {
+    if (ahora - ultimoIntentoMpuMs < INTERVALO_RECONEXION_MPU_MS) return;
+    ultimoIntentoMpuMs = ahora;
+    Wire.end();
+    Wire.begin(PIN_I2C_SDA_MPU, PIN_I2C_SCL_MPU);
+    Wire.setTimeOut(TIMEOUT_I2C_MPU_MS);
+    if (iniciarMpu()) {
+      mpuDisponible = true;
+      mpuDetectadoAlgunaVez = true;
+      aceleracionAnteriorLista = false;
+      variacionFiltrada = 0.0f;
+      enMovimiento = false;
+      ultimoMuestreoMpuMs = ahora;
+      Serial.println("MPU6050: comunicación recuperada; movimiento disponible");
+    }
+    return;
+  }
+  if (ahora-ultimoMuestreoMpuMs < INTERVALO_MUESTREO_MPU_MS) return;
   ultimoMuestreoMpuMs=ahora;
   uint8_t datos[6];
   if (!leerRegistroMpu(0x3B,datos,sizeof(datos))) {
     mpuDisponible=false;
     enMovimiento=false;
+    ultimoIntentoMpuMs = ahora;
     Serial.println("MPU6050: se perdió la comunicación; movimiento no disponible");
     return;
   }
@@ -127,17 +158,17 @@ void actualizarMpu(uint32_t ahora) {
 }
 
 // Construye y difunde la telemetría que las torres usan para medir RSSI.
-void enviarBeacon() {
+bool enviarBeacon() {
   PaqueteBeaconJugador paquete = {crearEncabezado(TipoPaquete::BEACON_JUGADOR),
                                   idJugador, sesionJugador, ++secuencia, millis(), static_cast<uint8_t>(mpuDisponible ? (enMovimiento ? 2 : 1) : 0)};
-  if (enviarBroadcast(&paquete, sizeof(paquete))) {
-    led.pulso(VERDE);
-  }
+  return enviarBroadcast(&paquete, sizeof(paquete));
 }
 
-void programarProximoBeacon(uint32_t ahora) {
+uint32_t programarProximoBeacon(uint32_t ahora) {
   const uint32_t jitter = esp_random() % (JITTER_BEACON_MAX_MS + 1UL);
-  proximoBeaconMs = ahora + INTERVALO_BEACON_MS + jitter;
+  const uint32_t intervalo = INTERVALO_BEACON_MS + jitter;
+  proximoBeaconMs = ahora + intervalo;
+  return intervalo;
 }
 
 void alRecibir(const esp_now_recv_info_t *info, const uint8_t *datos, int longitud) {
@@ -162,12 +193,12 @@ void setup() {
   apagarDriverMotores();
   led.iniciar();
   led.intermitente(AMARILLO, 400);
-  if (SENSOR_LIGHT_BLOCKING_PRESENTE) { pinMode(PIN_LIGHT_BLOCKING, INPUT_PULLUP); estadoTarjeta.transmitir=false; led.intermitente(ROJO, 500); }
+  if (SENSOR_LIGHT_BLOCKING_PRESENTE) { pinMode(PIN_LIGHT_BLOCKING, INPUT_PULLUP); estadoTarjeta.transmitir=false; }
   Wire.begin(PIN_I2C_SDA_MPU, PIN_I2C_SCL_MPU);
   Wire.setTimeOut(TIMEOUT_I2C_MPU_MS);
-  Wire.beginTransmission(DIRECCION_MPU6050);
-  mpuDisponible = Wire.endTransmission() == 0;
-  if (mpuDisponible) { Wire.beginTransmission(DIRECCION_MPU6050); Wire.write(0x6B); Wire.write(0); Wire.endTransmission(); }
+  mpuDisponible = iniciarMpu();
+  mpuDetectadoAlgunaVez = mpuDisponible;
+  ultimoIntentoMpuMs = millis();
   Serial.printf("MPU6050: %s; sensor tarjeta: %s\n", mpuDisponible ? "presente" : "ausente", SENSOR_LIGHT_BLOCKING_PRESENTE ? "habilitado" : "deshabilitado");
   if (mpuDisponible) {
     Serial.printf("Movimiento se reporta cada 1 s; umbral k=%.3f g, filtro alfa=%.2f\n",
@@ -180,7 +211,7 @@ void setup() {
   if (sesionJugador == 0) sesionJugador = 1;
   radioLista = prepararEstacionEnCanal(CANAL_ESPNOW) && inicializarEspNow(WIFI_IF_STA);
   if (!radioLista || esp_now_register_recv_cb(alRecibir) != ESP_OK) {
-    led.intermitente(ROJO, 200);
+    led.intermitente(ERROR_RADIO_JUGADOR, 200);
     Serial.println("Error: radio ESP-NOW no disponible; no se pueden enviar beacons");
     return;
   }
@@ -214,7 +245,8 @@ void loop() {
   }
   if (estadoTarjeta.transmitir && idJugador != ID_SIN_ASIGNAR &&
       static_cast<int32_t>(ahora - proximoBeaconMs) >= 0) {
-    enviarBeacon();
-    programarProximoBeacon(ahora);
+    const bool enviado = enviarBeacon();
+    const uint32_t intervalo = programarProximoBeacon(ahora);
+    if (enviado) led.latido(intervalo);
   }
 }
