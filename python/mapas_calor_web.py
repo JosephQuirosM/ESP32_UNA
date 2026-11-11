@@ -15,11 +15,11 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 import joblib
 
 from entrenamiento_web import escribir_json
-from mvp_config import COLUMNAS_CARACTERISTICAS
+from config_rssi import COLUMNAS_CARACTERISTICAS
 from cuadricula import resolver_cuadricula, comprobar_zonas
 from preprocesar_calibracion import construir_muestras, COLUMNAS_REQUERIDAS
 from reproducir_mapa_calor import suavizar, generar_mapa
-from jugadores_mapas import leer_grupos, guardar_lecturas, estadisticas
+from jugadores_mapas import leer_grupos, guardar_lecturas, estadisticas, exportar
 
 
 def cargar_vectores(ruta, permitir_vacio=False):
@@ -68,31 +68,6 @@ def suavizar_series(filas, predicciones, ventana):
         for i, valor in zip(grupo, suavizar([predicciones[j] for j in grupo], ventana)):
             resultado[i] = valor
     return resultado
-
-
-def exportar(origenes, carpeta, nombre, sufijos=(".png", "_predicciones.csv", "_resumen.json")):
-    for indice in range(1, 10000):
-        base = nombre if indice == 1 else f"{nombre}_{indice}"
-        destinos = [carpeta/f"{base}{sufijo}" for sufijo in sufijos]
-        abiertos = []
-        try:
-            for destino in destinos: abiertos.append(destino.open("xb"))
-        except FileExistsError:
-            for f in abiertos: f.close(); Path(f.name).unlink()
-            continue
-        except Exception:
-            for f in abiertos: f.close(); Path(f.name).unlink()
-            raise
-        try:
-            for origen, f in zip(origenes, abiertos):
-                with f, origen.open("rb") as lectura:
-                    import shutil
-                    shutil.copyfileobj(lectura, f)
-            return destinos
-        except Exception:
-            for f in abiertos: f.close(); Path(f.name).unlink(missing_ok=True)
-            raise
-    raise ValueError("No se pudo reservar un nombre libre para la imagen")
 
 
 def generar(solicitud, carpeta):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entrena y evalúa el KNN MVP sin dividir filas temporalmente correlacionadas."""
+"""Entrena y evalúa KNN sin dividir filas temporalmente correlacionadas."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from mvp_config import COLUMNAS_CARACTERISTICAS
+from config_rssi import COLUMNAS_CARACTERISTICAS
 from cuadricula import (cuadricula_de_filas, comprobar_zonas, coordenadas, crear_cuadricula,
                         agregar_argumentos, desde_argumentos)
 

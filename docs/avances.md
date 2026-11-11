@@ -22,13 +22,13 @@ El preset sigue siendo 3×3. Cambiar filas/columnas en Recolección (por ejemplo
 - Los mapas cuentan predicciones y proporciones; no integran tiempos entre lecturas. No hay inferencia en vivo ni interpolación continua implementada.
 - Control UDP V3 con UUID, revisión persistida y ACK: el Gateway descarta en inactividad, limpia en cambios y el reloj comienza tras confirmar. Las pequeñas colas de las torres y sus relojes locales permanecen sin sincronización.
 - Hay datos, modelos y resultados en esta copia local, excluidos de Git. No se publica una precisión experimental vigente sin revisar su evidencia.
-- La tabla física debe mantenerse coherente entre `docs/mapa_torres_fisicas.md` y `python/mvp_config.py`.
+- La tabla física debe mantenerse coherente entre `docs/mapa_torres_fisicas.md` y `python/config_rssi.py`.
 
 ## Verificación de esta revisión
 
 El 4 de noviembre de 2026 pasaron 34 pruebas Python, 18 pruebas del backend y las compilaciones de backend y frontend. Las pruebas ejercitan procesos Python reales y HTTP con entradas de prueba; no sustituyen una campaña con ESP32.
 
-La arquitectura y los contratos completos se describen en [arquitectura.md](arquitectura.md). Las ampliaciones se registran en el [roadmap](../ROADMAP_CODEX_MAPA_CALOR_ESP32.md).
+La arquitectura y los contratos completos se describen en [arquitectura.md](arquitectura.md).
 
 Se compiló Gateway con `arduino-cli`, FQBN `esp32:esp32:esp32` y core ESP32 3.3.11. No había placas conectadas: queda pendiente la comprobación física con logs y dos zonas consecutivas. El aislamiento, recuperación y spinner se verifican con Gateway simulado; las pruebas de la máquina de estados compilan y ejecutan el encabezado real del firmware con g++.
 

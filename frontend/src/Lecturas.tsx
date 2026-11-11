@@ -25,6 +25,8 @@ import {
 import { dimensionValida, generarZonas, MAXIMO_DIMENSION } from "./cuadricula";
 import Cuadricula from "./Cuadricula";
 import { crearSolicitudId } from "./solicitudId";
+import { cargarRutasPreferidas } from "./rutasPreferidas";
+import ExploradorAutorizado from "./ExploradorAutorizado";
 
 type Fase =
   | "configuracion"
@@ -65,7 +67,7 @@ const inicial: Sesion = {
   captura: null,
 };
 
-/** Recupera el recorrido local; el resultado de la captura se consulta siempre al backend. */
+/** Sólo recupera una captura que aún requiere control; los formularios y resultados son de un uso. */
 function recuperar(): Sesion {
   try {
     const valor = JSON.parse(
@@ -98,11 +100,15 @@ function recuperar(): Sesion {
       typeof valor.duracion !== "string" ||
       !Array.isArray(valor.completas) ||
       !Array.isArray(valor.omitidas)
-    )
+    ) {
+      localStorage.removeItem(CLAVE);
       return inicial;
-    // Recupera un inicio que falló antes de crear y enviar su identificador.
-    if (valor.fase === "captura" && !valor.solicitud && !valor.captura)
-      return { ...valor, fase: valor.modo === "guiado" ? "esperando" : "configuracion" };
+    }
+    if ((valor.captura && !capturaActiva(valor.captura)) ||
+        (!valor.solicitud && !capturaActiva(valor.captura))) {
+      localStorage.removeItem(CLAVE);
+      return inicial;
+    }
     if (valor.solicitud && (!valor.captura || valor.captura.estado === "iniciando"))
       return { ...valor, fase: valor.modo === "guiado" ? "esperando" : "configuracion" };
     return { ...valor, directorioSalida: typeof valor.directorioSalida === "string" ? valor.directorioSalida : "" };
@@ -133,9 +139,12 @@ export default function Lecturas({
 }) {
   const [sesion, setSesion] = useState<Sesion>(recuperar);
   const sesionRef = useRef(sesion);
+  const recuperadoAlEntrar = useRef(!!sesion.solicitud || capturaActiva(sesion.captura));
   const [error, setError] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const [seleccionandoCarpeta, setSeleccionandoCarpeta] = useState(false);
+  const [exploradorRemoto, setExploradorRemoto] = useState(false);
+  const [selectorLocal, setSelectorLocal] = useState(false);
   const ocupadoRef = useRef(false);
   const [sinCrear, setSinCrear] = useState(false);
   const [conexionCaptura, setConexionCaptura] = useState(true);
@@ -151,18 +160,21 @@ export default function Lecturas({
     capturaActiva(servidor?.actual ?? null) &&
     servidor?.actual?.solicitudId !== sesion.solicitud?.solicitudId;
 
-  /** Persiste la instrucción antes de enviarla, para poder recuperar una respuesta perdida. */
+  /** Persiste únicamente capturas pendientes o activas para poder recuperar una respuesta perdida. */
   function actualizar(cambio: Partial<Sesion> | ((previa: Sesion) => Sesion)) {
     const siguiente =
       typeof cambio === "function"
         ? cambio(sesionRef.current)
         : { ...sesionRef.current, ...cambio };
     sesionRef.current = siguiente;
+    const requiereRecuperacion = !!siguiente.solicitud || capturaActiva(siguiente.captura);
     try {
-      localStorage.setItem(CLAVE, JSON.stringify(siguiente));
+      if (requiereRecuperacion)
+        localStorage.setItem(CLAVE, JSON.stringify(siguiente));
+      else localStorage.removeItem(CLAVE);
     } catch {
-      setError(
-        "El navegador no pudo conservar el recorrido. Evita recargar hasta terminar; los CSV permanecen en el backend.",
+      if (requiereRecuperacion) setError(
+        "El navegador no pudo conservar la captura en curso. Evita recargar hasta terminar; los CSV permanecen en el backend.",
       );
     }
     setSesion(siguiente);
@@ -171,6 +183,12 @@ export default function Lecturas({
   function recibir(captura: Captura) {
     const previa = sesionRef.current;
     if (captura.solicitudId !== previa.solicitud?.solicitudId) return;
+    if (recuperadoAlEntrar.current && !capturaActiva(captura)) {
+      recuperadoAlEntrar.current = false;
+      actualizar({ ...inicial, directorioSalida: previa.directorioSalida });
+      return;
+    }
+    recuperadoAlEntrar.current = false;
     setSinCrear(false);
     setConexionCaptura(true);
     if (capturaActiva(captura)) {
@@ -241,6 +259,13 @@ export default function Lecturas({
     const reloj = setInterval(() => setAhora(Date.now()), 200);
     return () => clearInterval(reloj);
   }, []);
+  useEffect(() => {
+    void cargarRutasPreferidas().then(rutas => {
+      setSelectorLocal(rutas.selectorLocal === true);
+      if (rutas.recoleccionSalida && !sesionRef.current.directorioSalida && !sesionRef.current.solicitud)
+        actualizar({ directorioSalida: rutas.recoleccionSalida });
+    }).catch(() => {});
+  }, []);
 
   /** Reenvía exactamente la misma solicitud cuando su respuesta se perdió. */
   async function enviar(solicitud: SolicitudLectura) {
@@ -308,6 +333,10 @@ export default function Lecturas({
 
   function preparar(evento: FormEvent) {
     evento.preventDefault();
+    if (!sesion.directorioSalida.trim()) {
+      setError("Selecciona una carpeta de la PC del backend antes de recolectar.");
+      return;
+    }
     const nombre = sesion.nombre.trim().replace(/\.csv$/i, "");
     if (!nombre || nombre.length > 80 || !/^[\p{L}\p{N}_ -]+$/u.test(nombre)) {
       setError(
@@ -549,17 +578,18 @@ export default function Lecturas({
               <small>
                 El receptor controla el tiempo aunque cierres el navegador.
               </small></>}
-              <label htmlFor="directorio-recoleccion">Carpeta para guardar los CSV en esta PC</label>
+              <label htmlFor="directorio-recoleccion">Carpeta para guardar los CSV en la PC del backend</label>
               <div className="preparacion-elegir-ruta">
                 <input id="directorio-recoleccion" value={sesion.directorioSalida}
-                  placeholder="Por defecto: data/raw/" disabled={bloqueado || seleccionandoCarpeta}
+                  placeholder="Selecciona o escribe una carpeta del backend" disabled={bloqueado || seleccionandoCarpeta}
                   onChange={(evento) => actualizar({ directorioSalida: evento.target.value })} />
-                <button type="button" className="boton secundario"
+                {selectorLocal && <button type="button" className="boton secundario"
                   disabled={bloqueado || seleccionandoCarpeta} onClick={() => void explorarCarpeta()}>
                   <FolderOpen size={18} /> {seleccionandoCarpeta ? "Seleccionando…" : "Explorar"}
-                </button>
+                </button>}
+                {!selectorLocal && <button type="button" className="boton secundario" disabled={bloqueado} onClick={() => setExploradorRemoto(true)}><FolderOpen size={18}/> Explorar carpetas</button>}
               </div>
-              <small>Déjala vacía para usar la carpeta predeterminada. La carpeta elegida debe existir.</small>
+              <small>La carpeta debe estar autorizada en la PC del backend. Desde el hotspot puedes explorar sus subcarpetas.</small>
               <div className="vista-nombre">
                 <FileText size={18} />
                 <span>{vistaNombre}</span>
@@ -573,6 +603,7 @@ export default function Lecturas({
                 disabled={
                   bloqueado ||
                   otraActiva ||
+                  !sesion.directorioSalida.trim() ||
                   (sesion.modo === "manual" && !conectado)
                 }
                 type="submit"
@@ -770,12 +801,8 @@ export default function Lecturas({
                   onClick={() => {
                     setError("");
                     actualizar({
-                      fase: "configuracion",
-                      solicitud: null,
-                      captura: null,
-                      indice: 0,
-                      completas: [],
-                      omitidas: [],
+                      ...inicial,
+                      directorioSalida: sesion.directorioSalida,
                     });
                   }}
                 >
@@ -827,6 +854,7 @@ export default function Lecturas({
           )}
         </div>
       )}
+      {exploradorRemoto && <ExploradorAutorizado tipo="carpeta" onCerrar={() => setExploradorRemoto(false)} onElegir={ruta => { actualizar({ directorioSalida: ruta }); setExploradorRemoto(false); }}/>}
     </>
   );
 }

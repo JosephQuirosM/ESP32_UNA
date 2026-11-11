@@ -6,6 +6,7 @@ import { resolve, join } from "node:path";
 import express from "express";
 import { rutasPreparacion } from "../src/preparacion.js";
 import { ErrorPeticion } from "../src/gestor.js";
+import { RaicesAutorizadas } from "../src/raicesAutorizadas.js";
 
 test("Preparación HTTP: Python real, descarga y rechazo de entradas inválidas", async () => {
   const raiz = mkdtempSync(join(tmpdir(), "preparacion-web-"));
@@ -21,7 +22,7 @@ test("Preparación HTTP: Python real, descarga y rechazo de entradas inválidas"
   const cabecera = "timestamp_utc_pc,sesion_gateway,jugador_id,sesion_jugador,secuencia,mac_torre,rssi\n";
   const csv = cabecera + ["10:06:1C:D5:95:04", "90:15:06:5A:30:D0", "10:06:1C:D5:95:8C", "10:06:1C:D4:8F:C4"].map((mac) => `2026-10-16T00:00:00Z,1,1,1,7,${mac},-50\n`).join("");
   const archivo = { nombre: "zona12.csv", zona: 12, dataset: "dataset 1", contenido: csv };
-  const post = (archivos: unknown[], directorioSalida?: string) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivos, directorioSalida }) });
+  const post = (archivos: unknown[], directorioSalida = raiz) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivos, directorioSalida }) });
   try {
     const response = await post([archivo]);
     assert.equal(response.status, 201);
@@ -52,5 +53,39 @@ test("Preparación HTTP: Python real, descarga y rechazo de entradas inválidas"
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(raiz, { recursive: true, force: true });
+  }
+});
+
+test("Preparación toma CSV de la raíz autorizada sin descargarlos al celular", async () => {
+  const base = mkdtempSync(join(tmpdir(), "preparacion-raiz-"));
+  const repo = existsSync(resolve("python")) ? resolve(".") : resolve("..");
+  symlinkSync(join(repo, "python"), join(base, "python"), "dir");
+  const trabajo = join(base, "trabajo"), fuera = join(base, "fuera");
+  mkdirSync(trabajo); mkdirSync(fuera);
+  const cabecera = "timestamp_utc_pc,sesion_gateway,jugador_id,sesion_jugador,secuencia,mac_torre,rssi\n";
+  const csv = cabecera + ["10:06:1C:D5:95:04", "90:15:06:5A:30:D0", "10:06:1C:D5:95:8C", "10:06:1C:D4:8F:C4"].map(mac => `2026-10-16T00:00:00Z,1,1,1,7,${mac},-50\n`).join("");
+  const entrada = join(trabajo, "zona_1.csv"), externa = join(fuera, "externa.csv");
+  writeFileSync(entrada, csv); writeFileSync(externa, csv);
+  symlinkSync(externa, join(trabajo, "enlace.csv"));
+  const seguridad = new RaicesAutorizadas(base);
+  seguridad.agregar(trabajo);
+  const app = express();
+  app.use("/api/preparacion", rutasPreparacion({ raiz: base, directorioDatos: base, python: "python3", host: "127.0.0.1", puertoHttp: 8080, puertoUdp: 4210, destinoUdp: "127.0.0.1", zonaHoraria: "America/Costa_Rica" }, seguridad));
+  app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => { res.status(error instanceof ErrorPeticion ? error.estadoHttp : 500).json({ error: error.message }); });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>(resolve => server.once("listening", resolve));
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/preparacion`;
+  const post = (ruta: string) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivos: [{ ruta, zona: 1 }], directorioSalida: trabajo }) });
+  try {
+    const valida = await post(entrada);
+    assert.equal(valida.status, 201);
+    const salida = await valida.json() as { rutaSalida: string; resumen: { vectores_completos: number } };
+    assert.equal(salida.resumen.vectores_completos, 1);
+    assert.match(readFileSync(salida.rutaSalida, "utf8"), /zona_1\.csv/);
+    assert.equal((await post(externa)).status, 403);
+    assert.equal((await post(join(trabajo, "enlace.csv"))).status, 403);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(base, { recursive: true, force: true });
   }
 });

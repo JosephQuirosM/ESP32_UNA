@@ -2,8 +2,9 @@
 from collections import defaultdict
 import csv
 from pathlib import Path
+import shutil
 
-from mvp_config import MAC_A_CARACTERISTICA, normalizar_mac, COLUMNAS_CARACTERISTICAS
+from config_rssi import MAC_A_CARACTERISTICA, normalizar_mac, COLUMNAS_CARACTERISTICAS
 from preprocesar_calibracion import COLUMNAS_REQUERIDAS
 
 
@@ -52,6 +53,38 @@ def guardar_lecturas(ruta, columnas, filas):
         w = csv.DictWriter(f, fieldnames=columnas)
         w.writeheader()
         w.writerows(filas)
+
+
+def exportar(origenes, carpeta, nombre, sufijos):
+    """Copia un conjunto de resultados con un nombre libre, sin sobrescribir."""
+    for indice in range(1, 10000):
+        base = nombre if indice == 1 else f"{nombre}_{indice}"
+        destinos = [carpeta / f"{base}{sufijo}" for sufijo in sufijos]
+        abiertos = []
+        try:
+            for destino in destinos:
+                abiertos.append(destino.open("xb"))
+        except FileExistsError:
+            for archivo in abiertos:
+                archivo.close()
+                Path(archivo.name).unlink()
+            continue
+        except Exception:
+            for archivo in abiertos:
+                archivo.close()
+                Path(archivo.name).unlink()
+            raise
+        try:
+            for origen, archivo in zip(origenes, abiertos):
+                with archivo, origen.open("rb") as lectura:
+                    shutil.copyfileobj(lectura, archivo)
+            return destinos
+        except Exception:
+            for archivo in abiertos:
+                archivo.close()
+                Path(archivo.name).unlink(missing_ok=True)
+            raise
+    raise ValueError("No se pudo reservar un nombre de salida disponible")
 
 
 def estadisticas(filas, crudo):

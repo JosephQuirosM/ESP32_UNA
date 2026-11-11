@@ -55,7 +55,7 @@ test("HTTP: captura guiada de 12 zonas conserva acomodo hasta el mapa KNN y RF",
   try {
     const cuadricula = { filas: 3, columnas: 4, zonas: generarZonas(3, 4) };
     [cuadricula.zonas[0], cuadricula.zonas[11]] = [cuadricula.zonas[11], cuadricula.zonas[0]];
-    const solicitud = { solicitudId: "captura-zonas-12", nombreArchivo: "zona_12", duracionSegundos: 2, cuadricula };
+    const solicitud = { solicitudId: "captura-zonas-12", nombreArchivo: "zona_12", duracionSegundos: 2, cuadricula, directorioSalida: gestor.configuracion.directorioDatos };
     assert.equal((await post("/api/lecturas", { ...solicitud, cuadricula: { ...cuadricula, zonas: [1] } })).status, 400);
     const inicio = await post("/api/lecturas", solicitud); assert.equal(inicio.status, 202);
     const captura = await inicio.json() as { id: string };
@@ -69,7 +69,7 @@ test("HTTP: captura guiada de 12 zonas conserva acomodo hasta el mapa KNN y RF",
     await esperar(`/api/lecturas/${captura.id}`, c => c.estado === "completada");
     const crudo = await (await fetch(`${url}/api/lecturas/${captura.id}/archivo`)).text();
     assert.ok(crudo.split("\n")[0].includes("cuadricula"));
-    const preparacion = await post("/api/preparacion", { archivos: [{ nombre: "zona_12.csv", zona: 12, contenido: crudo }] });
+    const preparacion = await post("/api/preparacion", { archivos: [{ nombre: "zona_12.csv", zona: 12, contenido: crudo }], directorioSalida: raiz });
     assert.equal(preparacion.status, 201);
     const preparado = await preparacion.json() as { rutaSalida: string; cuadricula: unknown };
     assert.deepEqual(preparado.cuadricula, cuadricula);

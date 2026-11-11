@@ -19,19 +19,13 @@ coverage/
 
 # Compilaciones locales de firmware.
 .pio/
+/firmware/Gateway/config.local.h
 
-# Datos locales: capturas raw, datos limpios, vectores, mapas y resúmenes.
-# Conserva documentación y marcadores de las carpetas.
-/data/**
-!/data/**/
-!/data/**/.gitkeep
-!/data/**/README.md
+# Datos locales: el backend crea estas carpetas cuando las necesita.
+/data/
 
 # Modelos entrenados y sus metadatos.
-/models/**
-!/models/**/
-!/models/**/.gitkeep
-!/models/**/README.md
+/models/
 *.joblib
 *.pkl
 *.pickle

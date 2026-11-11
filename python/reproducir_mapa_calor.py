@@ -16,7 +16,7 @@ os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "esp32_u
 import matplotlib.pyplot as plt
 import numpy as np
 
-from mvp_config import COLUMNAS_CARACTERISTICAS
+from config_rssi import COLUMNAS_CARACTERISTICAS
 from cuadricula import (crear_cuadricula, validar_cuadricula, coordenadas, comprobar_zonas,
                         resolver_cuadricula, agregar_argumentos, desde_argumentos)
 

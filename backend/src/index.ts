@@ -1,82 +1,107 @@
 import { existsSync } from "node:fs";
-import { networkInterfaces } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crearApp } from "./app.js";
 import { GestorLecturas } from "./gestor.js";
+import { RaicesAutorizadas } from "./raicesAutorizadas.js";
+import { AccesoRemoto } from "./accesoRemoto.js";
+import { detectarHotspot } from "./detectarHotspot.js";
 
-/** Encuentra el repositorio tanto al ejecutar TypeScript como el backend compilado. */
 function encontrarRaiz() {
   let carpeta = dirname(fileURLToPath(import.meta.url));
   while (!existsSync(resolve(carpeta, "python/receptor_gateway.py"))) {
     const superior = dirname(carpeta);
-    if (superior === carpeta)
-      throw new Error("No se encontró el receptor Python del proyecto.");
+    if (superior === carpeta) throw new Error("No se encontró el receptor Python del proyecto.");
     carpeta = superior;
   }
   return carpeta;
 }
 function puerto(variable: string, defecto: number) {
   const valor = Number(process.env[variable] ?? defecto);
-  if (!Number.isInteger(valor) || valor < 1 || valor > 65535)
-    throw new Error(`${variable} debe ser un puerto válido.`);
+  if (!Number.isInteger(valor) || valor < 1 || valor > 65535) throw new Error(`${variable} debe ser un puerto válido.`);
   return valor;
 }
+
 const raiz = encontrarRaiz();
-const entornoPython = resolve(
-  raiz,
-  process.platform === "win32"
-    ? ".venv/Scripts/python.exe"
-    : ".venv/bin/python",
-);
+const entornoPython = resolve(raiz, process.platform === "win32" ? ".venv/Scripts/python.exe" : ".venv/bin/python");
+const puertoBackend = puerto("PUERTO_BACKEND", 8000);
+const puertoHttp = puerto("RECEPTOR_PUERTO_HTTP", 8080);
+const puertoUdp = puerto("RECEPTOR_PUERTO_UDP", 4210);
 const gestor = new GestorLecturas({
   raiz,
   directorioDatos: process.env.DIRECTORIO_DATOS ?? resolve(raiz, "data/raw"),
-  python:
-    process.env.PYTHON_EJECUTABLE ??
-    (existsSync(entornoPython)
-      ? entornoPython
-      : process.platform === "win32"
-        ? "python"
-        : "python3"),
-  host: process.env.RECEPTOR_HOST ?? "0.0.0.0",
-  puertoHttp: puerto("RECEPTOR_PUERTO_HTTP", 8080),
+  python: process.env.PYTHON_EJECUTABLE ?? (existsSync(entornoPython) ? entornoPython : process.platform === "win32" ? "python" : "python3"),
+  host: "127.0.0.1",
+  puertoHttp,
   destinoUdp: process.env.RECEPTOR_DESTINO_UDP ?? "192.168.4.255",
-  puertoUdp: puerto("RECEPTOR_PUERTO_UDP", 4210),
+  puertoUdp,
   zonaHoraria: process.env.ZONA_HORARIA ?? "America/Costa_Rica",
-});
-const gateway = gestor.gateway;
-const hostBackend = process.env.HOST_BACKEND ?? "0.0.0.0";
-const puertoBackend = puerto("PUERTO_BACKEND", 8000);
-const servidor = crearApp(gestor, gateway).listen(
-  puertoBackend,
-  hostBackend,
-  () => {
-    gateway.iniciar();
-    if (hostBackend === "0.0.0.0" || hostBackend === "127.0.0.1")
-      console.log(`Panel local disponible en http://localhost:${puertoBackend}`);
-    for (const [interfaz, direcciones] of Object.entries(networkInterfaces())) {
-      for (const direccion of direcciones ?? []) {
-        if (direccion.family === "IPv4" && !direccion.internal &&
-            (hostBackend === "0.0.0.0" || hostBackend === direccion.address))
-          console.log(`Acceso desde la red (${interfaz}): http://${direccion.address}:${puertoBackend}`);
-      }
-    }
-  },
-);
-servidor.on("error", async (error) => {
-  console.error(`No se pudo iniciar el backend: ${error.message}`);
-  await gestor.cerrar();
-  process.exitCode = 1;
-});
+}, false);
+gestor.redLista = false;
+const seguridad = new RaicesAutorizadas(gestor.configuracion.directorioDatos);
+gestor.seguridad = seguridad;
+const acceso = new AccesoRemoto();
+const app = crearApp(gestor, gestor.gateway, seguridad, acceso);
+const local = app.listen(puertoBackend, "127.0.0.1", () => console.log(`Panel de esta PC: http://localhost:${puertoBackend}`));
+console.log(`Código para dispositivos del hotspot: ${acceso.codigo}`);
+local.on("error", (error) => { console.error(`No se pudo abrir el panel local: ${error.message}`); process.exitCode = 1; });
+let publico: ReturnType<typeof app.listen> | null = null;
+let ipPublica: string | null = null;
 let cerrando = false;
+let sincronizando = false;
+
+function cerrarPublico() {
+  const anterior = publico; publico = null; ipPublica = null;
+  if (anterior) { anterior.closeAllConnections(); anterior.close(); }
+}
+function desconectar(motivo: string) {
+  gestor.redLista = false;
+  gestor.estadoRed = motivo;
+  cerrarPublico();
+  const activa = gestor.actual();
+  if (activa) gestor.detener(activa.id);
+  gestor.gateway.desactivar();
+  gestor.gateway.cerrar();
+  gestor.configuracion.host = "127.0.0.1";
+}
+async function comprobarRed() {
+  if (cerrando || sincronizando) return;
+  sincronizando = true;
+  try {
+    const estado = await detectarHotspot(gestor.configuracion.python, raiz);
+    if (cerrando) return;
+    if (!estado) {
+      if (publico || gestor.redLista || gestor.actual()) desconectar("No se detecta el hotspot. Acceso disponible sólo en esta PC.");
+      else gestor.estadoRed = "No se detecta el hotspot. Acceso disponible sólo en esta PC.";
+      return;
+    }
+    if (publico && ipPublica === estado.ip) { gestor.estadoRed = `Hotspot: ${estado.ip}; acceso con código`; return; }
+    if (publico) desconectar("Cambió la dirección del hotspot; reabriendo el panel.");
+    gestor.configuracion.host = estado.ip;
+    const servidor = app.listen(puertoBackend, estado.ip);
+    servidor.once("listening", () => {
+      if (cerrando || publico !== servidor) { servidor.close(); return; }
+      ipPublica = estado.ip;
+      gestor.redLista = true;
+      gestor.estadoRed = `Hotspot: ${estado.ip}; acceso con código`;
+      gestor.gateway.iniciar();
+      console.log(`Panel en el hotspot: http://${estado.ip}:${puertoBackend}`);
+    });
+    servidor.on("error", (error) => { console.error(`No se pudo abrir el panel del hotspot: ${error.message}`); if (publico === servidor) desconectar("No se pudo abrir el panel en el hotspot."); });
+    publico = servidor;
+  } catch (error) {
+    desconectar(`No se pudo comprobar el hotspot: ${(error as Error).message}`);
+  } finally { sincronizando = false; }
+}
+void comprobarRed();
+const vigilanciaRed = setInterval(() => void comprobarRed(), 3000);
+
 async function cerrar() {
   if (cerrando) return;
-  cerrando = true;
+  cerrando = true; clearInterval(vigilanciaRed);
+  cerrarPublico();
   await gestor.cerrar();
-  servidor.close(() => {
-    process.exitCode = 0;
-  });
+  local.close(() => { process.exitCode = 0; });
 }
 process.on("SIGINT", cerrar);
 process.on("SIGTERM", cerrar);

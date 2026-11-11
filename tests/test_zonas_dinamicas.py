@@ -14,7 +14,7 @@ from cuadricula import crear_cuadricula, validar_cuadricula, coordenadas
 from receptor_gateway import EscritorCsv
 from preparar_datos_web import preparar
 from preprocesar_calibracion import construir_muestras
-from mvp_config import MAC_A_CARACTERISTICA
+from config_rssi import MAC_A_CARACTERISTICA
 try:
     import joblib
     import matplotlib.pyplot as plt

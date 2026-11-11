@@ -29,20 +29,20 @@ export function seleccionarCarpeta(ruta: string): Promise<string | null> {
 }
 
 /** Selecciona un CSV local con el gestor de archivos del sistema. */
-export function seleccionarCsv(ruta: string): Promise<string | null> {
+export function seleccionarCsv(ruta: string, titulo = "Seleccionar CSV etiquetado para entrenar"): Promise<string | null> {
   let comando: string, argumentos: string[];
   if (process.platform === "linux") {
     comando = "zenity";
-    argumentos = ["--file-selection", "--title=Seleccionar CSV etiquetado para entrenar", "--file-filter=Archivos CSV | *.csv *.CSV", `--filename=${ruta.endsWith(sep) ? ruta : ruta + sep}`];
+    argumentos = ["--file-selection", `--title=${titulo}`, "--file-filter=Archivos CSV | *.csv *.CSV", `--filename=${ruta.endsWith(sep) ? ruta : ruta + sep}`];
   } else if (process.platform === "darwin") {
     comando = "osascript";
-    argumentos = ["-e", 'on run argv\ntry\nreturn POSIX path of (choose file with prompt "Seleccionar CSV etiquetado" of type {"csv"} default location (POSIX file (item 1 of argv)))\non error number -128\nreturn ""\nend try\nend run', ruta];
+    argumentos = ["-e", 'on run argv\ntry\nreturn POSIX path of (choose file with prompt (item 2 of argv) of type {"csv"} default location (POSIX file (item 1 of argv)))\non error number -128\nreturn ""\nend try\nend run', ruta, titulo];
   } else if (process.platform === "win32") {
     comando = "powershell.exe";
-    argumentos = ["-NoProfile", "-STA", "-Command", 'Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.OpenFileDialog; $d.Filter="CSV (*.csv)|*.csv"; $d.InitialDirectory=$env:ESP32_CARPETA_INICIAL; if($d.ShowDialog() -eq "OK"){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::Write($d.FileName)}; $d.Dispose()'];
+    argumentos = ["-NoProfile", "-STA", "-Command", 'Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.OpenFileDialog; $d.Title=$env:ESP32_TITULO_SELECTOR; $d.Filter="CSV (*.csv)|*.csv"; $d.InitialDirectory=$env:ESP32_CARPETA_INICIAL; if($d.ShowDialog() -eq "OK"){[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::Write($d.FileName)}; $d.Dispose()'];
   } else throw new ErrorPeticion(503, "Selector de archivos no disponible en este sistema.");
   return new Promise((resolve, reject) => {
-    const child = spawn(comando, argumentos, { env: { ...process.env, ESP32_CARPETA_INICIAL: ruta }, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(comando, argumentos, { env: { ...process.env, ESP32_CARPETA_INICIAL: ruta, ESP32_TITULO_SELECTOR: titulo }, stdio: ["ignore", "pipe", "pipe"] });
     let salida = "";
     const timer = setTimeout(() => { child.kill(); reject(new ErrorPeticion(408, "El selector agotó su tiempo de espera.")); }, 300000);
     child.stdout.on("data", c => { salida += c; }); child.stderr.on("data", () => {});

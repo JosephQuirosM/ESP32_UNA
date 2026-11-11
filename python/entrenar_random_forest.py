@@ -11,7 +11,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix
 
 from entrenar_knn import cargar_entradas
-from mvp_config import COLUMNAS_CARACTERISTICAS
+from config_rssi import COLUMNAS_CARACTERISTICAS
 from cuadricula import cuadricula_de_filas, comprobar_zonas, agregar_argumentos, desde_argumentos
 
 

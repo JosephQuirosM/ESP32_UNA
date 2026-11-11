@@ -10,7 +10,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/"python"))
 from jugadores_mapas import leer_grupos, estadisticas, guardar_lecturas
-from mvp_config import MAC_A_CARACTERISTICA
+from config_rssi import MAC_A_CARACTERISTICA
 from mapas_calor_web import generar
 import joblib
 from sklearn.neighbors import KNeighborsClassifier
@@ -101,7 +101,7 @@ class MapasJugadoresTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"MAC de torre"):estadisticas([mala],True)
 
     def test_preparado_metricas_no_inventadas(self):
-        from mvp_config import COLUMNAS_CARACTERISTICAS
+        from config_rssi import COLUMNAS_CARACTERISTICAS
         with tempfile.TemporaryDirectory() as tmp:
             entrada=Path(tmp)/"preparado.csv"
             columnas=[*COLUMNAS_CARACTERISTICAS,"completo","jugador_id"]

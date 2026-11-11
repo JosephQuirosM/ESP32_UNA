@@ -1,6 +1,6 @@
-# MVP: mapa de calor RSSI con ESP32
+# Mapa de calor RSSI con ESP32 — versión 1.0
 
-Este repositorio implementa el MVP de un mapa de calor RSSI: 1 jugador, 4 torres ESP32 y 1 Gateway. Incluye firmware ESP-NOW v4, una aplicación local React/Express y procesos Python para captura CSV, preparación, entrenamiento KNN/Random Forest y mapas de predicción. Los datasets, modelos y resultados generados se excluyen de Git; pueden existir en la copia local.
+Este repositorio implementa un sistema de mapas de calor RSSI para hasta 10 jugadores por sesión del Gateway, 4 torres ESP32 y 1 Gateway. Incluye firmware ESP-NOW v4, una aplicación local React/Express y procesos Python para captura CSV, preparación, entrenamiento KNN/Random Forest y mapas de predicción. Los datasets, modelos y resultados generados se excluyen de Git; pueden existir en la copia local.
 
 ## Arquitectura
 
@@ -15,13 +15,13 @@ Navegador React <-- HTTP /api :8000 --> PC/backend Express --> procesos Python
 CSV --> vectores RSSI --> KNN / Random Forest --> predicciones y mapa PNG
 ```
 
-La PC crea el hotspot Wi-Fi y el Gateway se conecta a él como estación, con el nombre y la clave de `firmware/Gateway/config.h`. El hotspot debe usar 2.4 GHz y el mismo canal ESP-NOW que Gateway, torres y jugador (6 por defecto). El Gateway anuncia su presencia cada dos segundos al broadcast calculado de su red. El backend de la PC escucha UDP 4210 y responde por unicast; para una captura preparada autoriza su UUID y puerto HTTP, espera el ACK de limpieza y apertura, y después inicia la duración del receptor, que recibe lotes JSON v3 en `/v1/registros`. No es necesario configurar el broadcast en la PC para usar la interfaz web. El protocolo ESP-NOW también es v4; los seis dispositivos deben tener esta misma versión cargada.
+La PC crea el hotspot Wi-Fi y el Gateway se conecta a él como estación, con el nombre y la clave de `firmware/Gateway/config.local.h` (archivo local ignorado por Git). El hotspot debe usar 2.4 GHz y el mismo canal ESP-NOW que Gateway, torres y jugador (6 por defecto). El Gateway anuncia su presencia cada dos segundos al broadcast calculado de su red. El backend de la PC escucha UDP 4210 y responde por unicast; para una captura preparada autoriza su UUID y puerto HTTP, espera el ACK de limpieza y apertura, y después inicia la duración del receptor, que recibe lotes JSON v3 en `/v1/registros`. No es necesario configurar el broadcast en la PC para usar la interfaz web. El protocolo ESP-NOW también es v4; todos los dispositivos deben tener esta misma versión cargada.
 
 > Documentación vigente: [arquitectura y contratos](docs/arquitectura.md), [contexto del proyecto](docs/contexto.md) y [estado de implementación](docs/avances.md). La geometría física documentada es 6 m × 2,5 m; compruebe la geometría y procedencia de cada campaña antes de usar sus datos.
 
 ## Requisitos
 
-- Seis ESP32 IdeaBoard: 1 jugador, 4 torres y 1 Gateway.
+- De 1 a 10 jugadores ESP32 IdeaBoard por sesión del Gateway, 4 torres y 1 Gateway.
 - Arduino IDE con el paquete **esp32 by Espressif Systems 3.x**.
 - Node.js 22.12+ para la aplicación React/Express.
 - Python 3.10 o superior; el receptor no requiere paquetes externos. Preparación funciona con la biblioteca estándar; entrenamiento y mapas requieren `requirements.txt`.
@@ -33,7 +33,15 @@ La PC crea el hotspot Wi-Fi y el Gateway se conecta a él como estación, con el
 1. Abra `firmware/Jugador/Jugador.ino` en Arduino IDE y cárguelo en la placa del jugador.
 2. Abra `firmware/Torre/Torre.ino` y cárguelo en cada una de las cuatro torres.
 3. Abra `firmware/Gateway/Gateway.ino` y cárguelo en la placa Gateway.
-4. Revise los `config.h` antes de cargar: especialmente nombre/clave del hotspot y canal. Todas las placas deben compartir el mismo canal.
+4. Cree `firmware/Gateway/config.local.h` con el nombre y la clave de su hotspot; revise el canal en los tres `config.h`. Todas las placas deben compartir el mismo canal.
+
+```cpp
+#pragma once
+constexpr char NOMBRE_RED[] = "NOMBRE_DE_TU_HOTSPOT";
+constexpr char CLAVE_RED[] = "TU_CLAVE";
+```
+
+El archivo local se ignora en Git. Sin él, el Gateway compila con valores de ejemplo y no se conectará a su hotspot.
 
 No es necesario cambiar el ID al cargar cada jugador o torre. Con `ID_JUGADOR_RESPALDO=0` e `ID_TORRE_RESPALDO=0`, el Gateway asigna los IDs dinámicamente según la MAC durante cada arranque. Los cuatro GPIO del driver de motores integrado se fuerzan a nivel bajo al iniciar para evitar activaciones accidentales.
 
@@ -51,13 +59,13 @@ npm run build
 npm start
 ```
 
-Active el hotspot de la PC con las credenciales de `firmware/Gateway/config.h`, encienda el Gateway, abra `http://localhost:8000` y configure el nombre y la duración en Recolección. El modo manual crea un CSV; el guiado crea un CSV por zona confirmada y permite saltar zonas sin crear archivos. No necesita escribir un comando Python por captura.
+Active el hotspot de la PC con las credenciales de `firmware/Gateway/config.local.h`, autorice una carpeta de trabajo en «Carpetas», encienda el Gateway, abra `http://localhost:8000` y configure el nombre y la duración en Recolección. El móvil abre la IP del hotspot y escribe el código mostrado en la PC. No se instala ningún servicio ni se piden permisos de administrador. El modo manual crea un CSV; el guiado crea un CSV por zona confirmada y permite saltar zonas sin crear archivos. No necesita escribir un comando Python por captura.
 
-Python controla el tiempo y cierra el CSV aunque el navegador pierda conexión. Los archivos se guardan en `data/raw`, con fecha y hora de solicitud en Costa Rica por defecto, y pueden descargarse desde Datasets. Consulte [backend/README.md](backend/README.md) para configuración, recuperación y pruebas. La preparación ya admite estas capturas: asigna una zona por archivo y reúne las cuatro RSSI sin recortes por tiempo. El Gateway descarta lecturas fuera de captura y limpia cola, lote y reintentos en cada cambio de identidad. El botón muestra un spinner hasta que el Gateway confirma el inicio; entonces comienza el tiempo. Véase [el control de capturas](docs/descubrimiento_gateway.md).
+Python controla el tiempo y cierra el CSV aunque el navegador pierda conexión. Antes de iniciar una captura se elige una carpeta existente en la PC del backend. Allí se guardan los CSV con fecha y hora de solicitud en Costa Rica por defecto, y pueden descargarse desde Datasets. Consulte [backend/README.md](backend/README.md) para configuración, recuperación y pruebas. La preparación ya admite estas capturas: asigna una zona por archivo y reúne las cuatro RSSI sin recortes por tiempo. El Gateway descarta lecturas fuera de captura y limpia cola, lote y reintentos en cada cambio de identidad. El botón muestra un spinner hasta que el Gateway confirma el inicio; entonces comienza el tiempo. Véase [el control de capturas](docs/descubrimiento_gateway.md).
 
 ## Receptor Python
 
-Active primero el hotspot de la PC y configure su nombre y clave en `firmware/Gateway/config.h` antes de cargar el Gateway. Como alternativa a la web, ejecute el receptor por terminal con un archivo nuevo:
+Active primero el hotspot de la PC y configure su nombre y clave en `firmware/Gateway/config.local.h` antes de cargar el Gateway. Como alternativa a la web, ejecute el receptor por terminal con un archivo nuevo:
 
 ```bash
 python3 python/receptor_gateway.py --archivo data/raw/captura_YYYY-MM-DD_HHMM.csv --nuevo
@@ -75,7 +83,7 @@ Después de instalar las dependencias de análisis en `.venv`, ejecute las prueb
 
 ## Preparación y entrenamiento por archivos
 
-El MVP usa la identidad física de las torres (MAC), nunca el `torre_id` dinámico. La fuente de verdad es [docs/mapa_torres_fisicas.md](docs/mapa_torres_fisicas.md). Sus características tienen siempre este orden: superior izquierda, superior derecha, inferior izquierda e inferior derecha.
+El sistema usa la identidad física de las torres (MAC), nunca el `torre_id` dinámico. La fuente de verdad es [docs/mapa_torres_fisicas.md](docs/mapa_torres_fisicas.md). Sus características tienen siempre este orden: superior izquierda, superior derecha, inferior izquierda e inferior derecha.
 
 Instale las dependencias de análisis una vez:
 
@@ -85,6 +93,8 @@ python3 -m venv .venv
 ```
 
 Los comandos siguientes son ejemplos: sustituya las carpetas por entradas existentes. Git no distribuye esos datasets. Puede entrenar directamente con los CSV por zona de una carpeta, sin crear previamente un CSV combinado:
+
+El repositorio se distribuye sin lecturas, CSV de prueba, mapas, modelos ni configuraciones locales de rutas. El backend crea `data/` y `models/` cuando los necesita. Para usar archivos históricos, elija una carpeta de trabajo existente y autorícela desde el panel local.
 
 ```bash
 .venv/bin/python python/entrenar_knn.py \
@@ -108,14 +118,14 @@ Los CSV separados por zona se procesan juntos indicando las carpetas Cleaned:
   --resumen data/processed/calibracion_6x2_5m_nueva_resumen.json
 
 .venv/bin/python python/entrenar_knn.py data/processed/calibracion_6x2_5m_nueva.csv \
-  --modelo models/knn_mvp_6x2_5m_nueva.joblib \
-  --metricas data/processed/evaluacion_knn_mvp_6x2_5m_nueva.md \
-  --metadata models/knn_mvp_6x2_5m_nueva.json
+  --modelo models/knn_6x2_5m_nueva.joblib \
+  --metricas data/processed/evaluacion_knn_6x2_5m_nueva.md \
+  --metadata models/knn_6x2_5m_nueva.json
 
 .venv/bin/python python/reproducir_mapa_calor.py data/processed/calibracion_6x2_5m_nueva.csv \
-  --modelo models/knn_mvp_6x2_5m_nueva.joblib \
-  --predicciones data/processed/predicciones_knn_mvp_6x2_5m_nueva.csv \
-  --mapa data/processed/mapa_calor_knn_mvp_6x2_5m_nueva.png
+  --modelo models/knn_6x2_5m_nueva.joblib \
+  --predicciones data/processed/predicciones_knn_6x2_5m_nueva.csv \
+  --mapa data/processed/mapa_calor_knn_6x2_5m_nueva.png
 ```
 
 El preprocesamiento obtiene la zona de `zona_Z` en el nombre; el prefijo DatasetN es opcional. Para archivos crudos con nombres libres como `lecturas.csv`, indique `--zona 4` (aplica a todos los crudos de esa invocación) o use la preparación web para asignar una zona por archivo. Acepta carpetas sin búsqueda recursiva o archivos individuales y genera un único CSV de vectores para entrenar. No elimina segundos iniciales, no divide en bloques de 60 segundos ni quita cantidades fijas de filas. Si utiliza una carpeta Cleaned, la limpieza previa debe estar documentada junto a sus originales. Cada archivo se agrupa por separado para evitar mezclar secuencias entre zonas. Se conserva la procedencia en `dataset` y `archivo_origen`.
@@ -164,7 +174,9 @@ Los informes experimentales son artefactos locales excluidos de Git. Su existenc
 
 ## Análisis desde la interfaz y límites actuales
 
-Preparación permite subir CSV, asignar zona por archivo y descargar un CSV de vectores y su resumen. Entrenamiento web recibe un CSV preparado y configura KNN o Random Forest; guarda `.joblib` y JSON sin ejecutar una evaluación automática. Mapas recibe uno o varios CSV crudos o preparados y un modelo, aplica suavizado causal por archivo/jugador/sesión y separa hasta 10 jugadores por sesión del Gateway: exporta sus lecturas intactas y ordenadas, PNG individuales y resúmenes de recepción en CSV/JSON. Si un jugador no tiene vectores completos, conserva sus lecturas y estadísticas sin generar PNG. Los porcentajes de recepción y vectores completos usan el rango entre primera y última secuencia observadas de cada sesión, sin contar duplicados. Entrenamiento y mapas usan rutas de la PC y requieren acceso desde esa misma PC; la recolección y Datasets también pueden usarse desde el móvil.
+Preparación ofrece **Entrenamiento**, que permite cargar CSV desde el dispositivo o elegirlos directamente en las carpetas autorizadas de la PC, asignar zona por archivo y descargar un CSV de vectores y su resumen; y **Jugadores**, que separa un CSV mezclado en archivos ordenados por jugador y genera estadísticas y resúmenes sin requerir modelo ni mapa. Entrenamiento web recibe un CSV preparado y configura KNN o Random Forest; guarda `.joblib` y JSON sin ejecutar una evaluación automática. Mapas recibe uno o varios CSV crudos o preparados y un modelo, aplica suavizado causal por archivo/jugador/sesión y separa hasta 10 jugadores por sesión del Gateway: exporta sus lecturas intactas y ordenadas, PNG individuales y resúmenes de recepción en CSV/JSON. Si un jugador no tiene vectores completos, conserva sus lecturas y estadísticas sin generar PNG. Los porcentajes de recepción y vectores completos usan el rango entre primera y última secuencia observadas de cada sesión, sin contar duplicados. En el primer uso, las rutas de entrada y salida están vacías: se deben elegir carpetas y archivos existentes en la PC del backend. Las rutas usadas se recuerdan en la instancia del backend y se recuperan desde otros navegadores. La PC autoriza las carpetas de trabajo; dentro de ellas, el móvil puede explorar archivos, crear subcarpetas y elegir entradas y salidas. El selector nativo del sistema operativo queda disponible sólo en la PC anfitriona.
+
+Al cambiar de módulo y regresar, se abre su pantalla inicial con un nombre nuevo; los resultados terminados no se restauran como vista activa. Una captura o trabajo aún en curso sí puede recuperarse para seguirlo o detenerlo. Las carpetas y rutas elegidas continúan recordándose en el backend.
 
 El preset inicial es 3×3 (9 zonas). En Recolección puede cambiar filas y columnas desde el frontend, hasta 20×20, e intercambiar posiciones. Las capturas guiadas nuevas incluyen una columna adicional `cuadricula` con esa geometría. Preparación la conserva en el CSV etiquetado y Entrenamiento la guarda dentro del `.joblib` y el resumen JSON. Mapas utiliza automáticamente las dimensiones y posiciones del modelo o CSV, incluyendo zonas sin predicciones.
 
@@ -177,10 +189,8 @@ Los entrenamientos web y CLI admiten etiquetas enteras positivas; no exigen medi
 - [Arquitectura actual](docs/arquitectura.md): componentes, contratos, colas, persistencia y límites.
 - [Descubrimiento del Gateway](docs/descubrimiento_gateway.md): mensajes UDP y confirmación de la PC.
 - [Mapa físico](docs/mapa_torres_fisicas.md) y [protocolo de captura](docs/prueba_campo_captura.md).
+- [Pines de IdeaBoard](docs/esp32_ideaboard_pinout.md): referencia de conexiones del hardware.
 - [Backend](backend/README.md) y [frontend](frontend/README.md): ejecución, API y flujos.
-- [Roadmap](ROADMAP_CODEX_MAPA_CALOR_ESP32.md): planificación y propuestas históricas, diferenciadas del código vigente.
-
-`Informacion.docx`, `Roadmap_Proyecto_Mapa_de_Calor_ESP32.pdf` y `references/` se conservan como material de referencia original. No definen el contrato de transmisión ni el estado actual; consulte los documentos Markdown anteriores para operar o modificar el sistema.
 
 ```bash
 npm run build
@@ -199,3 +209,7 @@ Los scripts de preparación, KNN, Random Forest y reproducción recuperan la col
 El control UDP V3 identifica cada captura con su UUID y una revisión persistida. Sin autorización el Gateway escucha radio, pero descarta RSSI y mantiene vacíos la cola y el lote HTTP. Cada captura nueva limpia los pendientes antes de confirmar; una renovación de la misma orden no los elimina. El HTTP añade `X-Heatmap-Captura` y Python rechaza IDs anteriores. No hay órdenes de captura nuevas para jugador ni torres. El paquete ESP-NOW v4 añade el movimiento; los tres tipos de placa deben actualizarse juntos.
 
 En manual y guiado el formulario permanece visible con el botón deshabilitado y un spinner hasta confirmar. Si no hay confirmación en 10 s se informa un error y se conservan los archivos fallidos. Las pausas entre zonas desactivan el Gateway. El límite es la recepción en Gateway; las torres conservan sus propios tiempos y pequeñas colas.
+
+## Acceso desde el hotspot y carpetas
+
+El backend abre `localhost:8000` para administrar carpetas. Si detecta el hotspot, abre también su IP y exige un código de acceso a los demás dispositivos para servir el frontend y las APIs; Vite queda en loopback. El código aparece en la consola y en «Carpetas» de la PC, y cambia al reiniciar el backend. La PC autoriza los directorios que el móvil podrá explorar y usar para capturas, modelos y mapas. El móvil puede crear subcarpetas dentro de esas raíces y elegir directamente los CSV de captura para Preparación. Las APIs comprueban cada ruta real contra las raíces, incluidas las descargas antiguas. Si el hotspot desaparece, el acceso remoto se cierra y la captura se detiene. Sin reglas de firewall por interfaz, una ruta excepcional desde otra red podría alcanzar la pantalla de acceso, pero no operar el panel sin el código. Consulte [los detalles de acceso](backend/README.md#acceso-desde-el-hotspot).

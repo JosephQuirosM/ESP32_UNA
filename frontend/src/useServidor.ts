@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type EstadoServidor } from "./api";
+import { api, ErrorApi, type EstadoServidor } from "./api";
 
 /** Actualiza la disponibilidad del backend y el estado real del receptor. */
 export function useServidor() {
@@ -15,7 +15,11 @@ export function useServidor() {
           setEstado(respuesta);
           setConectado(true);
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof ErrorApi && error.codigo === 401) {
+          window.location.replace("/acceso");
+          return;
+        }
         if (vigente) setConectado(false);
       }
       if (vigente) intervalo = setTimeout(consultar, 1000);

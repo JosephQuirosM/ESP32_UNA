@@ -15,6 +15,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { recordarRutas } from "./rutasPreferidas.js";
+import type { RaicesAutorizadas } from "./raicesAutorizadas.js";
 import { createInterface } from "node:readline";
 import {
   capturaActiva,
@@ -114,6 +116,9 @@ export function validarSolicitud(carga: unknown): SolicitudLectura {
 
 /** Administra una captura independiente y conserva su resultado en el disco local. */
 export class GestorLecturas {
+  public seguridad?: RaicesAutorizadas;
+  public redLista = true;
+  public estadoRed = "La red privada no está configurada.";
   private registros = new Map<string, Captura>();
   private procesos = new Map<string, ChildProcessWithoutNullStreams>();
   private pendientesSalida = new Set<string>();
@@ -123,7 +128,7 @@ export class GestorLecturas {
   private cerrando = false;
   public readonly gateway: DescubridorGateway;
 
-  constructor(public configuracion: Configuracion) {
+  constructor(public configuracion: Configuracion, activarGateway = true) {
     configuracion.directorioDatos = resolve(configuracion.directorioDatos);
     mkdirSync(configuracion.directorioDatos, { recursive: true });
     this.directorioEstado = join(configuracion.directorioDatos, ".lecturas");
@@ -148,7 +153,7 @@ export class GestorLecturas {
     this.gateway.on("confirmacion", (id: string) => this.confirmarGateway(id));
     this.gateway.on("fallo", (id: string, mensaje: string) => this.fallarInicio(id, mensaje));
     this.actualizar();
-    this.gateway.iniciar();
+    if (activarGateway) this.gateway.iniciar();
     this.vigilancia = setInterval(() => this.actualizar(), 500);
     this.vigilancia.unref();
   }
@@ -303,11 +308,13 @@ export class GestorLecturas {
 
   /** Inicia Python sin shell y reserva un nombre que no sobrescriba otras capturas. */
   iniciar(carga: unknown): Captura {
+    if (!this.redLista) throw new ErrorPeticion(503, "El hotspot no está protegido o no está disponible. Revisa el estado de red en esta PC.");
     const solicitud = validarSolicitud(carga);
     const anterior = this.listar().find(
       (captura) => captura.solicitudId === solicitud.solicitudId,
     );
     if (anterior) {
+      this.seguridad?.permitir(anterior.directorioSalida ?? this.configuracion.directorioDatos, "carpeta");
       const rutaSolicitada = solicitud.directorioSalida
         ? resolve(this.configuracion.raiz, solicitud.directorioSalida)
         : this.configuracion.directorioDatos;
@@ -324,6 +331,8 @@ export class GestorLecturas {
         );
       return this.presentar(anterior);
     }
+    if (!solicitud.directorioSalida)
+      throw new ErrorPeticion(400, "Selecciona una carpeta de salida antes de recolectar.");
     let directorioSalida: string;
     try {
       directorioSalida = realpathSync(resolve(this.configuracion.raiz, solicitud.directorioSalida || this.configuracion.directorioDatos));
@@ -332,6 +341,7 @@ export class GestorLecturas {
     } catch {
       throw new ErrorPeticion(400, "La carpeta de recolección no existe o no permite escribir archivos.");
     }
+    this.seguridad?.permitir(directorioSalida, "carpeta");
     if (this.cerrando)
       throw new ErrorPeticion(503, "El backend se está cerrando.");
     if (this.actual())
@@ -370,6 +380,8 @@ export class GestorLecturas {
     };
     this.registros.set(captura.id, captura);
     this.guardar(captura);
+    try { recordarRutas(this.configuracion.directorioDatos, { recoleccionSalida: directorioSalida }); }
+    catch (error) { console.error("No se pudo recordar la carpeta de recolección:", error); }
     const cfg = this.configuracion;
     const argumentos = [
       "-u",

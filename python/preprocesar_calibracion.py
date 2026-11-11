@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convierte una captura RSSI v3 en vectores etiquetados para el MVP KNN."""
+"""Convierte capturas RSSI en vectores etiquetados para entrenamiento."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Iterable
 
 from cuadricula import cuadricula_de_filas, comprobar_zonas, agregar_argumentos, desde_argumentos
 
-from mvp_config import (
+from config_rssi import (
     COLUMNAS_CARACTERISTICAS,
     MAC_A_CARACTERISTICA,
     normalizar_mac,

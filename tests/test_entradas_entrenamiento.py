@@ -15,7 +15,7 @@ except ModuleNotFoundError:
     DEPENDENCIAS = False
 else:
     DEPENDENCIAS = True
-from mvp_config import COLUMNAS_CARACTERISTICAS
+from config_rssi import COLUMNAS_CARACTERISTICAS
 from preparar_datos_web import preparar
 
 

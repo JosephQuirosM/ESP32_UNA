@@ -33,7 +33,7 @@ test("Control de captura: ACK, aislamiento A/B, renovaciones y datos tardíos", 
   const gateway = new GatewaySimulado(); gateway.confirmar = false;
   await gateway.iniciar(gestor.configuracion.puertoUdp);
   const terminal = (estado: string) => ["error", "completada", "detenida"].includes(estado);
-  const capturar = (nombre: string, duracion = 1) => gestor.iniciar({ solicitudId: randomUUID(), nombreArchivo: nombre, duracionSegundos: duracion });
+  const capturar = (nombre: string, duracion = 1) => gestor.iniciar({ solicitudId: randomUUID(), nombreArchivo: nombre, duracionSegundos: duracion, directorioSalida: carpeta });
   const post = (id: string) => fetch(`http://127.0.0.1:${gestor.configuracion.puertoHttp}/v1/registros`, {
     method: "POST", headers: { "Content-Type": "application/json", "X-Heatmap-Captura": id }, body: JSON.stringify([REGISTRO]),
   });
@@ -46,7 +46,7 @@ test("Control de captura: ACK, aislamiento A/B, renovaciones y datos tardíos", 
     assert.equal(gestor.obtener(a.id).inicioUtc, null);
     assert.equal((await post(a.id)).status, 503);
     const purgas = gateway.purgas;
-    assert.equal(gestor.iniciar({ solicitudId: a.solicitudId, nombreArchivo: a.nombreArchivo, duracionSegundos: 1 }).id, a.id);
+    assert.equal(gestor.iniciar({ solicitudId: a.solicitudId, nombreArchivo: a.nombreArchivo, duracionSegundos: 1, directorioSalida: carpeta }).id, a.id);
     gateway.confirmar = true;
     const grabando = await esperar(() => gestor.obtener(a.id), c => c.estado === "grabando");
     assert.equal(gateway.purgas, purgas); // Los reintentos no vacían la misma captura.
@@ -83,7 +83,7 @@ test("Sin ACK en 10 s conserva un CSV fallido y desactiva el Gateway", async () 
   await gateway.iniciar(gestor.configuracion.puertoUdp);
   try {
     const inicio = Date.now();
-    const captura = gestor.iniciar({ solicitudId: randomUUID(), nombreArchivo: "sin_ack", duracionSegundos: 1 });
+    const captura = gestor.iniciar({ solicitudId: randomUUID(), nombreArchivo: "sin_ack", duracionSegundos: 1, directorioSalida: carpeta });
     const resultado = await esperar(() => gestor.obtener(captura.id), c => c.estado === "error", 13000);
     assert.ok(Date.now() - inicio >= 10000);
     assert.match(resultado.error!, /10 segundos/);
@@ -93,7 +93,7 @@ test("Sin ACK en 10 s conserva un CSV fallido y desactiva el Gateway", async () 
     await esperar(() => gateway.puertoHttp, p => p === 0);
     assert.equal(gestor.actual(), null);
     gateway.confirmar = true;
-    const reintento = gestor.iniciar({ solicitudId: randomUUID(), nombreArchivo: "reintento", duracionSegundos: 1 });
+    const reintento = gestor.iniciar({ solicitudId: randomUUID(), nombreArchivo: "reintento", duracionSegundos: 1, directorioSalida: carpeta });
     await esperar(() => gestor.obtener(reintento.id), c => c.estado === "completada");
   } finally { await gestor.cerrar(); await gateway.cerrar(); rmSync(carpeta, { recursive: true, force: true }); }
 });
@@ -104,7 +104,7 @@ test("Gateway antiguo se rechaza y un reinicio invalida la captura activa", asyn
     host: "127.0.0.1", puertoHttp: await puertoLibre(), puertoUdp: await puertoLibre(), destinoUdp: "127.0.0.1", zonaHoraria: "America/Costa_Rica" });
   const gateway = new GatewaySimulado(); gateway.controlCaptura = false;
   await gateway.iniciar(gestor.configuracion.puertoUdp);
-  const iniciar = () => gestor.iniciar({ solicitudId: randomUUID(), nombreArchivo: "control", duracionSegundos: 20 });
+  const iniciar = () => gestor.iniciar({ solicitudId: randomUUID(), nombreArchivo: "control", duracionSegundos: 20, directorioSalida: carpeta });
   try {
     const viejo = iniciar();
     const error = await esperar(() => gestor.obtener(viejo.id), c => c.estado === "error");

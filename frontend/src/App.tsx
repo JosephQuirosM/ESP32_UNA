@@ -24,9 +24,15 @@ import Datasets from "./Datasets";
 import PreparacionDatos from "./PreparacionDatos";
 import EntrenamientoModelos from "./EntrenamientoModelos";
 import MapasCalor from "./MapasCalor";
+import CarpetasAutorizadas from "./CarpetasAutorizadas";
 import { useServidor } from "./useServidor";
 
-type Pagina = "inicio" | "captura" | "gateway" | "datasets" | "preparacion" | "entrenamiento" | "mapas" | "ayuda";
+type Pagina = "inicio" | "captura" | "gateway" | "datasets" | "preparacion" | "entrenamiento" | "mapas" | "carpetas" | "ayuda";
+function paginaDesdeUrl(): Pagina {
+  const nombre = window.location.hash.slice(1);
+  return ["inicio", "captura", "gateway", "datasets", "preparacion", "entrenamiento", "mapas", "carpetas", "ayuda"].includes(nombre)
+    ? nombre as Pagina : "inicio";
+}
 const NAVEGACION: { pagina: Pagina; titulo: string; icono: typeof Grid3X3 }[] =
   [
     { pagina: "inicio", titulo: "Inicio", icono: Layers },
@@ -36,6 +42,7 @@ const NAVEGACION: { pagina: Pagina; titulo: string; icono: typeof Grid3X3 }[] =
     { pagina: "mapas", titulo: "Mapas", icono: Thermometer },
     { pagina: "gateway", titulo: "Gateway", icono: Radio },
     { pagina: "datasets", titulo: "Datasets", icono: Database },
+    { pagina: "carpetas", titulo: "Carpetas", icono: ShieldCheck },
     { pagina: "ayuda", titulo: "Ayuda", icono: CircleHelp },
   ];
 const MODULOS = [
@@ -67,7 +74,7 @@ const MODULOS = [
 
 /** Panel local para controlar el receptor y consultar sus capturas. */
 export default function App() {
-  const [pagina, setPagina] = useState<Pagina>("inicio");
+  const [pagina, setPagina] = useState<Pagina>(paginaDesdeUrl);
   const [menuAbierto, setMenuAbierto] = useState(false);
   const principalRef = useRef<HTMLElement>(null);
   const menuRef = useRef<HTMLElement>(null);
@@ -125,8 +132,29 @@ export default function App() {
     };
   }, [menuAbierto]);
 
+  useEffect(() => {
+    const volver = () => {
+      setPagina(paginaDesdeUrl());
+      setMenuAbierto(false);
+      requestAnimationFrame(() => {
+        principalRef.current?.focus();
+        window.scrollTo({ top: 0 });
+      });
+    };
+    window.addEventListener("popstate", volver);
+    window.addEventListener("hashchange", volver);
+    return () => {
+      window.removeEventListener("popstate", volver);
+      window.removeEventListener("hashchange", volver);
+    };
+  }, []);
+
   /** Cambia de pantalla conservando la recolección activa. */
   function navegar(destino: Pagina) {
+    if (destino === pagina) { setMenuAbierto(false); return; }
+    const url = new URL(window.location.href);
+    url.hash = destino === "inicio" ? "" : destino;
+    window.history.pushState(null, "", url);
     setPagina(destino);
     setMenuAbierto(false);
     requestAnimationFrame(() => {
@@ -281,6 +309,7 @@ export default function App() {
                     <strong>{gateway}</strong>
                   </div>
                 </div>
+                {servidor?.redPrivada && <div className="estado"><ShieldCheck size={19}/><div><small>Red privada</small><strong>{servidor.redPrivada.lista ? "Protegida" : "Sólo esta PC"}</strong></div></div>}
               </div>
             </section>
             <section>
@@ -402,11 +431,13 @@ export default function App() {
                   : pagina === "entrenamiento"
                   ? "Entrenamiento de Modelos"
                   : pagina === "preparacion"
-                  ? "Preparación y Etiquetado de Datasets"
+                  ? "Preparación de Datos"
                   : pagina === "captura"
                   ? "Recolección de Datos"
                   : pagina === "gateway"
                     ? "Ajustes del Gateway"
+                    : pagina === "carpetas"
+                      ? "Carpetas autorizadas"
                     : pagina === "datasets"
                       ? "Datasets Recolectados"
                       : "Guía de Conexión"}
@@ -417,17 +448,20 @@ export default function App() {
                   : pagina === "entrenamiento"
                   ? "Selecciona tu CSV etiquetado y configura KNN o Random Forest para generar el modelo."
                   : pagina === "preparacion"
-                  ? "Carga los CSV de tus zonas y genera un único archivo etiquetado para entrenar modelos."
+                  ? "Etiqueta lecturas por zona para entrenar o separa un CSV por jugador."
                   : pagina === "captura"
                   ? "Elige cómo quieres recorrer tu sesión de medición."
                   : pagina === "gateway"
                     ? "Parámetros de referencia del sistema actual."
+                    : pagina === "carpetas"
+                      ? "Elige qué carpetas puede usar el sistema desde el hotspot."
                     : pagina === "datasets"
                       ? "Consulta los CSV guardados en esta PC."
                       : "Prepara tus dispositivos y conoce el orden de conexión."}
               </p>
             </div>
             {pagina === "datasets" && <Datasets />}
+            {pagina === "carpetas" && <CarpetasAutorizadas red={servidor?.redPrivada} />}
             {pagina === "gateway" && (
               <div className="layout-captura">
                 <section className="tarjeta configuracion">

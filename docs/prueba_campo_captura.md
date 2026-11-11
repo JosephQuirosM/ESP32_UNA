@@ -6,7 +6,7 @@ Obtener CSV v4 con procedencia y etiquetas fiables para entrenar y evaluar clasi
 
 ## Antes de iniciar
 
-1. Monte el área y mantenga las torres inmóviles. Verifique [mapa_torres_fisicas.md](mapa_torres_fisicas.md) y su correspondencia con `python/mvp_config.py`.
+1. Monte el área y mantenga las torres inmóviles. Verifique [mapa_torres_fisicas.md](mapa_torres_fisicas.md) y su correspondencia con `python/config_rssi.py`.
 2. Cargue el firmware compatible v4 en las seis placas. Revise las credenciales del hotspot y el mismo canal en todos los `config.h`.
 3. Active el hotspot de la PC en 2.4 GHz, canal 6 por defecto. El Gateway se conecta como estación; no crea la red.
 4. Para la captura web, compile con `npm run build`, levante `npm start` y abra `http://localhost:8000`. Encienda el Gateway y espere «Comunicando con la PC»; después encienda torres y jugador.

@@ -1,6 +1,8 @@
 import type { GeometriaCuadricula } from "./cuadricula";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Activity, CheckCircle2, Download, FileText, FolderOpen, LoaderCircle, Play, Settings2 } from "lucide-react";
+import { cargarRutasPreferidas } from "./rutasPreferidas";
+import ExploradorAutorizado from "./ExploradorAutorizado";
 
 type Resumen = { cuadricula?: GeometriaCuadricula | null; entrada: string; filas: number; vectores_completos: number; vectores_incompletos: number; zonas: number[]; por_zona: Record<string, number> };
 type Trabajo = { entrada?: string; nombre?: string; directorioSalida?: string; parametros?: Record<string, string | number | boolean | null>; id: string; estado: "pendiente" | "entrenando" | "completado" | "error"; error?: string; rutaModelo?: string; rutaResumen?: string; algoritmo?: string; resumen?: Resumen; duracion_segundos?: number; descarga?: string; resumenDescarga?: string };
@@ -11,7 +13,9 @@ async function pedir(ruta: string, carga?: unknown) {
   return datos;
 }
 const esEntero = (s: string, min: number, max: number) => /^\d+$/.test(s) && Number.isSafeInteger(Number(s)) && Number(s) >= min && Number(s) <= max;
-function ultimoTrabajo() { try { return localStorage.getItem("esp32.entrenamiento.actual"); } catch { return null; } }
+const CLAVE = "esp32.entrenamiento.actual";
+function ultimoTrabajo() { try { return localStorage.getItem(CLAVE); } catch { return null; } }
+function olvidarTrabajo() { try { localStorage.removeItem(CLAVE); } catch { /* Sin almacenamiento local. */ } }
 
 export default function EntrenamientoModelos() {
   const [entrada, setEntrada] = useState("");
@@ -19,6 +23,8 @@ export default function EntrenamientoModelos() {
   const [algoritmo, setAlgoritmo] = useState<"knn" | "random_forest">("knn");
   const [nombre, setNombre] = useState("modelo_knn");
   const [directorioSalida, setDirectorioSalida] = useState("");
+  const [selectorLocal, setSelectorLocal] = useState(false);
+  const [exploradorRemoto, setExploradorRemoto] = useState<"entrada" | "salida" | null>(null);
   const [k, setK] = useState("5");
   const [pesos, setPesos] = useState("distance");
   const [distancia, setDistancia] = useState("euclidean");
@@ -31,11 +37,23 @@ export default function EntrenamientoModelos() {
   const [ocupacion, setOcupacion] = useState("");
   const [error, setError] = useState("");
   const [id, setId] = useState<string | null>(ultimoTrabajo);
+  const recuperadoAlEntrar = useRef(!!id);
   const [trabajo, setTrabajo] = useState<Trabajo | null>(null);
   const [errorEstado, setErrorEstado] = useState("");
   const enCurso = !!id && (!trabajo || ["pendiente", "entrenando"].includes(trabajo.estado));
   const bloqueado = !!ocupacion || enCurso;
   const parametrosValidos = algoritmo === "knn" ? esEntero(k, 1, resumen?.vectores_completos ?? 1000000) : esEntero(arboles, 1, 2000) && (!profundidad || esEntero(profundidad, 1, 100)) && esEntero(minDivision, 2, 1000) && esEntero(minHoja, 1, 1000) && esEntero(semilla, 0, 2147483647);
+  useEffect(() => {
+    let vigente = true;
+    void cargarRutasPreferidas().then(rutas => {
+      if (!vigente) return;
+      setSelectorLocal(rutas.selectorLocal === true);
+      if (id) return;
+      if (rutas.entrenamientoEntrada) setEntrada(actual => actual || rutas.entrenamientoEntrada!);
+      if (rutas.entrenamientoSalida) setDirectorioSalida(actual => actual || rutas.entrenamientoSalida!);
+    }).catch(() => {});
+    return () => { vigente = false; };
+  }, [id]);
   useEffect(() => {
     if (!id) return;
     let activo = true;
@@ -45,6 +63,10 @@ export default function EntrenamientoModelos() {
       try {
         const datos = await pedir(`/${id}`) as Trabajo;
         if (!activo) return;
+        if (["completado", "error"].includes(datos.estado) && recuperadoAlEntrar.current) {
+          recuperadoAlEntrar.current = false; olvidarTrabajo(); setId(null); setTrabajo(null); setErrorEstado(""); return;
+        }
+        recuperadoAlEntrar.current = false;
         setTrabajo(datos); setErrorEstado("");
         if (!restaurado && datos.entrada) {
           restaurado = true;
@@ -66,7 +88,7 @@ export default function EntrenamientoModelos() {
             if (p.semilla !== undefined) setSemilla(String(p.semilla));
           }
         }
-        if (["completado", "error"].includes(datos.estado)) return;
+        if (["completado", "error"].includes(datos.estado)) { olvidarTrabajo(); return; }
       } catch (e) { if (activo) setErrorEstado(e instanceof Error ? e.message : "No se puede consultar el entrenamiento. Reintentando…"); }
       if (activo) timer = setTimeout(actualizar, 1500);
     }
@@ -99,12 +121,13 @@ export default function EntrenamientoModelos() {
     finally { setOcupacion(""); }
   }
   async function entrenar() {
+    if (!directorioSalida.trim()) { setError("Selecciona una carpeta de salida en la PC del backend."); return; }
     setOcupacion("iniciando"); setError("");
     const parametros = algoritmo === "knn" ? { k: Number(k), pesos, distancia, normalizar } : { arboles: Number(arboles), profundidad: profundidad ? Number(profundidad) : null, min_division: Number(minDivision), min_hoja: Number(minHoja), semilla: Number(semilla) };
     try {
       const nuevo = await pedir("", { entrada, algoritmo, parametros, nombre, directorioSalida }) as Trabajo;
       setTrabajo(nuevo); setId(nuevo.id);
-      try { localStorage.setItem("esp32.entrenamiento.actual", nuevo.id); } catch { /* El trabajo continúa aunque el almacenamiento del navegador no esté disponible. */ }
+      try { localStorage.setItem(CLAVE, nuevo.id); } catch { /* El trabajo continúa aunque el almacenamiento del navegador no esté disponible. */ }
     } catch (e) { setError(mensaje(e)); }
     finally { setOcupacion(""); }
   }
@@ -118,8 +141,8 @@ export default function EntrenamientoModelos() {
         <section className="tarjeta entrenamiento-seccion">
           <h2><FileText size={21} /> 1. Datos etiquetados</h2>
           <p>Selecciona el CSV generado en Preparación de Datos. El nombre del archivo y su dataset no limitan el entrenamiento.</p>
-          <label className="entrenamiento-campo">Archivo CSV en esta PC<input value={entrada} disabled={bloqueado} placeholder="Ruta al archivo etiquetado.csv" onChange={e => { setEntrada(e.target.value); setResumen(null); }} /></label>
-          <div className="entrenamiento-acciones"><button className="boton secundario" disabled={bloqueado} onClick={seleccionar}><FolderOpen size={18} /> Seleccionar CSV</button><button className="boton secundario" disabled={bloqueado || !entrada.trim()} onClick={() => void revisar()}>Revisar CSV</button></div>
+          <label className="entrenamiento-campo">Archivo CSV en la PC del backend<input value={entrada} disabled={bloqueado} placeholder="Ruta al archivo etiquetado.csv" onChange={e => { setEntrada(e.target.value); setResumen(null); }} /></label>
+          <div className="entrenamiento-acciones">{selectorLocal ? <button className="boton secundario" disabled={bloqueado} onClick={seleccionar}><FolderOpen size={18} /> Seleccionar CSV</button> : <button className="boton secundario" disabled={bloqueado} onClick={() => setExploradorRemoto("entrada")}><FolderOpen size={18}/> Explorar CSV</button>}<button className="boton secundario" disabled={bloqueado || !entrada.trim()} onClick={() => void revisar()}>Revisar CSV</button></div>
           {resumen && <div className="entrenamiento-resumen"><h3><CheckCircle2 size={18} /> CSV listo para entrenar</h3>{resumen.cuadricula ? <p>Cuadrícula: {resumen.cuadricula.filas} × {resumen.cuadricula.columnas} · {resumen.cuadricula.zonas.length} zonas. El modelo conservará este acomodo.</p> : <p>CSV sin geometría. Puedes entrenar sus zonas; define filas y columnas en Preparación o al generar mapas.</p>}<div className="entrenamiento-cifras"><div><strong>{resumen.vectores_completos}</strong><span>Vectores completos</span></div><div><strong>{resumen.vectores_incompletos}</strong><span>Incompletos, excluidos</span></div><div><strong>{resumen.zonas.length}</strong><span>Zonas presentes</span></div></div><div className="chips">{resumen.zonas.map(z => <span key={z}>Zona {z}: {resumen.por_zona[String(z)]}</span>)}</div></div>}
         </section>
         <section className="tarjeta entrenamiento-seccion">
@@ -144,19 +167,20 @@ export default function EntrenamientoModelos() {
       <aside className="tarjeta entrenamiento-seccion entrenamiento-salida">
         <h2><Activity size={21} /> 3. Generar modelo</h2>
         <label className="entrenamiento-campo">Nombre del modelo<input value={nombre} maxLength={80} disabled={bloqueado} onChange={e => setNombre(e.target.value)} /><small>Letras, números, guiones y guiones bajos. Se añade .joblib.</small></label>
-        <label className="entrenamiento-campo" htmlFor="entrenamiento-destino">Carpeta de salida en esta PC</label>
-        <div className="preparacion-elegir-ruta"><input id="entrenamiento-destino" value={directorioSalida} placeholder="Por defecto: models/" disabled={bloqueado} onChange={e => setDirectorioSalida(e.target.value)} /><button className="boton secundario" disabled={bloqueado} onClick={carpeta}><FolderOpen size={18} /> Explorar</button></div>
+        <label className="entrenamiento-campo" htmlFor="entrenamiento-destino">Carpeta de salida en la PC del backend</label>
+        <div className="preparacion-elegir-ruta"><input id="entrenamiento-destino" value={directorioSalida} placeholder="Selecciona o escribe una carpeta del backend" disabled={bloqueado} onChange={e => setDirectorioSalida(e.target.value)} />{selectorLocal ? <button className="boton secundario" disabled={bloqueado} onClick={carpeta}><FolderOpen size={18} /> Explorar</button> : <button className="boton secundario" disabled={bloqueado} onClick={() => setExploradorRemoto("salida")}><FolderOpen size={18}/> Explorar carpetas</button>}</div>
         <p>Se entrenará con todos los vectores completos del CSV. Los archivos existentes se conservan y el nombre recibe un número si hace falta.</p>
         {!parametrosValidos && <p className="entrenamiento-error">Revisa los parámetros: deben estar dentro de los límites indicados.</p>}
-        <button className="boton primario" disabled={bloqueado || !resumen || !parametrosValidos || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(nombre)} onClick={entrenar}>{bloqueado ? <LoaderCircle size={18} className="preparacion-girando" /> : <Play size={18} />}{enCurso ? "Entrenando modelo…" : ocupacion === "revisando" ? "Revisando CSV…" : ocupacion === "seleccionando" || ocupacion === "carpeta" ? "Seleccionando…" : ocupacion === "iniciando" ? "Iniciando…" : "Entrenar y guardar modelo"}</button>
+        <button className="boton primario" disabled={bloqueado || !directorioSalida.trim() || !resumen || !parametrosValidos || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(nombre)} onClick={entrenar}>{bloqueado ? <LoaderCircle size={18} className="preparacion-girando" /> : <Play size={18} />}{enCurso ? "Entrenando modelo…" : ocupacion === "revisando" ? "Revisando CSV…" : ocupacion === "seleccionando" || ocupacion === "carpeta" ? "Seleccionando…" : ocupacion === "iniciando" ? "Iniciando…" : "Entrenar y guardar modelo"}</button>
         {ocupacion === "seleccionando" || ocupacion === "carpeta" ? <p role="status">Completa la selección en la ventana del sistema operativo.</p> : null}
         {enCurso && <p role="status">Python está entrenando. Puedes cambiar de módulo; el proceso continúa en esta PC.</p>}
         {error && <p className="entrenamiento-error" role="alert">{error}</p>}
         {errorEstado && <p className="entrenamiento-error" role="alert">{errorEstado}</p>}
         {trabajo?.estado === "error" && <p className="entrenamiento-error" role="alert">{trabajo.error}</p>}
         {trabajo?.estado === "completado" && <div className="entrenamiento-resultado" role="status"><h3><CheckCircle2 size={19} /> Modelo entrenado</h3><p>{trabajo.algoritmo === "knn" ? "KNN" : "Random Forest"} · {trabajo.resumen?.vectores_completos} vectores · {trabajo.duracion_segundos?.toFixed(1)} s</p><p>Guardado en: <strong>{trabajo.rutaModelo}</strong></p><a className="boton primario" href={trabajo.descarga}><Download size={18} /> Descargar modelo .joblib</a><a href={trabajo.resumenDescarga}>Descargar resumen JSON</a><p>La precisión se medirá al probar el modelo con un archivo etiquetado elegido por el usuario.</p></div>}
-        {id && (!enCurso || !!errorEstado) && <button className="boton secundario" onClick={() => { setId(null); setTrabajo(null); setErrorEstado(""); try { localStorage.removeItem("esp32.entrenamiento.actual"); } catch { /* Sin persistencia local. */ } }}>Nuevo entrenamiento</button>}
+        {id && (!enCurso || !!errorEstado) && <button className="boton secundario" onClick={() => { olvidarTrabajo(); setId(null); setTrabajo(null); setResumen(null); setNombre("modelo_knn"); setAlgoritmo("knn"); setError(""); setErrorEstado(""); }}>Nuevo entrenamiento</button>}
       </aside>
+      {exploradorRemoto && <ExploradorAutorizado tipo={exploradorRemoto === "entrada" ? "csv" : "carpeta"} onCerrar={() => setExploradorRemoto(null)} onElegir={ruta => { if (exploradorRemoto === "entrada") { setEntrada(ruta); setResumen(null); } else setDirectorioSalida(ruta); setExploradorRemoto(null); }}/>}
     </div>
   </section>;
 }

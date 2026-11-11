@@ -38,7 +38,7 @@ export default function Datasets() {
         <span className="badge">{capturas.length} CSV</span>
       </div>
       <p className="texto-suave">
-        Guardados en data/raw de esta PC. Las capturas detenidas o con errores
+        Guardados en las carpetas elegidas de la PC del backend. Las capturas detenidas o con errores
         pueden contener datos parciales.
       </p>
       {error && (

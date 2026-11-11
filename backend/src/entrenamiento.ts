@@ -1,24 +1,20 @@
 import { Router, json } from "express";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { networkInterfaces } from "node:os";
 import { mkdir, readFile, writeFile, stat, realpath } from "node:fs/promises";
 import { join, resolve, isAbsolute, basename } from "node:path";
 import { seleccionarCsv } from "./selectorCarpeta.js";
 import { ErrorPeticion, type Configuracion } from "./gestor.js";
+import { recordarRutas } from "./rutasPreferidas.js";
+import type { RaicesAutorizadas } from "./raicesAutorizadas.js";
+import { peticionLocal } from "./accesoLocal.js";
 
-export function rutasEntrenamiento(config: Configuracion) {
+export function rutasEntrenamiento(config: Configuracion, seguridad?: RaicesAutorizadas) {
   const router = Router();
   const base = join(config.raiz, "models/entrenamientos");
   const script = join(config.raiz, "python/entrenamiento_web.py");
   let ocupado: string | null = null;
   let selectorAbierto = false;
-  router.use((req, _res, next) => {
-    const locales = new Set(["127.0.0.1", "::1", ...Object.values(networkInterfaces()).flatMap(v => (v ?? []).map(a => a.address))]);
-    if (!req.socket.remoteAddress || !locales.has(req.socket.remoteAddress.replace(/^::ffff:/, "")))
-      throw new ErrorPeticion(403, "El entrenamiento con archivos locales está disponible desde esta PC.");
-    next();
-  });
   router.use(json({ limit: "16kb" }));
   function ruta(valor: unknown) {
     if (typeof valor !== "string" || !valor.trim() || valor.includes("\0")) throw new ErrorPeticion(400, "Selecciona un archivo o carpeta válido.");
@@ -44,14 +40,16 @@ export function rutasEntrenamiento(config: Configuracion) {
       child.on("close", code => { clearTimeout(timer); if (code !== 0) reject(new ErrorPeticion(400, error.trim() || "CSV etiquetado inválido.")); else { try { resolve(JSON.parse(salida)); } catch { reject(new ErrorPeticion(500, "Python devolvió un resultado inválido.")); } } });
     });
   }
-  router.post("/seleccionar-csv", async (_req, res) => {
+  router.post("/seleccionar-csv", async (req, res) => {
+    if (!peticionLocal(req)) throw new ErrorPeticion(403, "El selector nativo sólo se abre desde esta PC.");
     if (selectorAbierto) throw new ErrorPeticion(409, "Ya hay un selector de archivos abierto.");
     selectorAbierto = true;
-    try { res.json({ ruta: await seleccionarCsv(config.raiz) }); }
+    try { const ruta = await seleccionarCsv(config.raiz); if (ruta) seguridad?.permitir(ruta, "archivo"); res.json({ ruta }); }
     finally { selectorAbierto = false; }
   });
   router.post("/inspeccionar", async (req, res) => {
     const archivo = await entrada(req.body?.entrada);
+    seguridad?.permitir(archivo, "archivo");
     res.json({ entrada: archivo, ...await inspeccionar(archivo) });
   });
   router.post("/", async (req, res) => {
@@ -69,12 +67,13 @@ export function rutasEntrenamiento(config: Configuracion) {
     if (!["knn", "random_forest"].includes(algoritmo) || !p || typeof p !== "object" || Array.isArray(p)) throw new ErrorPeticion(400, "Selecciona KNN o Random Forest y parámetros válidos.");
     const nombre = req.body?.nombre;
     if (typeof nombre !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(nombre)) throw new ErrorPeticion(400, "El nombre debe tener entre 1 y 80 letras, números, guiones o guiones bajos.");
-    let directorioSalida = join(config.raiz, "models");
-    if (req.body.directorioSalida) {
-      try { directorioSalida = await realpath(ruta(req.body.directorioSalida)); if (!(await stat(directorioSalida)).isDirectory()) throw new Error(); }
-      catch { throw new ErrorPeticion(400, "La carpeta de salida no existe o no es accesible."); }
-    }
+    if (!req.body.directorioSalida) throw new ErrorPeticion(400, "Selecciona una carpeta de salida para el modelo.");
+    let directorioSalida: string;
+    try { directorioSalida = await realpath(ruta(req.body.directorioSalida)); if (!(await stat(directorioSalida)).isDirectory()) throw new Error(); }
+    catch { throw new ErrorPeticion(400, "La carpeta de salida no existe o no es accesible."); }
+    seguridad?.permitir(directorioSalida, "carpeta");
     const archivo = await entrada(req.body.entrada);
+    seguridad?.permitir(archivo, "archivo");
     const entero = (clave: string, min: number, max: number) => { if (!Number.isSafeInteger(p[clave]) || p[clave] < min || p[clave] > max) throw new ErrorPeticion(400, `Parámetro ${clave}: debe ser un entero entre ${min} y ${max}.`); };
     if (algoritmo === "knn") {
       entero("k", 1, 1000000);
@@ -91,6 +90,7 @@ export function rutasEntrenamiento(config: Configuracion) {
       if (algoritmo === "knn" && p.k > Number(resumen.vectores_completos)) throw new ErrorPeticion(400, "K no puede superar la cantidad de vectores completos.");
       await mkdir(carpeta, { recursive: true });
       await writeFile(join(carpeta, "solicitud.json"), JSON.stringify({ entrada: archivo, algoritmo, parametros: p, nombre, directorioSalida, resumen }));
+      try { recordarRutas(config.directorioDatos, { entrenamientoEntrada: archivo, entrenamientoSalida: directorioSalida }); } catch (error) { console.error("No se pudieron recordar las rutas de entrenamiento:", error); }
       await writeFile(join(carpeta, "estado.json"), JSON.stringify({ estado: "pendiente" }));
       const child = spawn(config.python, ["-B", script, "entrenar", join(carpeta, "solicitud.json")], { cwd: config.raiz, stdio: ["ignore", "ignore", "pipe"] });
       let stderr = "";
@@ -119,6 +119,8 @@ export function rutasEntrenamiento(config: Configuracion) {
       catch { estado = { estado: "error", error: "El proceso de entrenamiento ya no está disponible. Puedes volver a iniciarlo." }; }
     }
     const solicitud = JSON.parse(await readFile(join(carpeta, "solicitud.json"), "utf8"));
+    seguridad?.permitir(solicitud.entrada, "archivo");
+    seguridad?.permitir(solicitud.directorioSalida, "carpeta");
     res.json({ id: req.params.id, ...solicitud, ...estado, descarga: `/api/entrenamiento/${req.params.id}/modelo`, resumenDescarga: `/api/entrenamiento/${req.params.id}/resumen` });
   });
   router.get("/:id/:tipo", async (req, res) => {
@@ -130,6 +132,11 @@ export function rutasEntrenamiento(config: Configuracion) {
     try { estado = JSON.parse(await readFile(join(carpeta, "estado.json"), "utf8")); }
     catch { throw new ErrorPeticion(404, "Entrenamiento no encontrado."); }
     if (estado.estado !== "completado") throw new ErrorPeticion(409, "El modelo todavía no está listo.");
+    if (seguridad) {
+      const solicitud = JSON.parse(await readFile(join(carpeta, "solicitud.json"), "utf8"));
+      seguridad.permitir(solicitud.entrada, "archivo");
+      seguridad.permitir(solicitud.directorioSalida, "carpeta");
+    }
     res.download(join(carpeta, nombre), basename(req.params.tipo === "modelo" ? estado.rutaModelo : estado.rutaResumen));
   });
   return router;

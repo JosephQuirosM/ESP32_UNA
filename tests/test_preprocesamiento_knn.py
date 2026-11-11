@@ -1,4 +1,4 @@
-"""Pruebas del contrato de preprocesamiento del MVP KNN."""
+"""Pruebas del contrato de preprocesamiento para KNN."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
-from mvp_config import (  # noqa: E402
+from config_rssi import (  # noqa: E402
     COLUMNAS_CARACTERISTICAS,
     COORDENADAS_ZONA,
     son_zonas_vecinas,
@@ -18,7 +18,7 @@ from mvp_config import (  # noqa: E402
 from preprocesar_calibracion import construir_muestras, leer_y_preprocesar  # noqa: E402
 
 
-class PreprocesamientoMvpTests(unittest.TestCase):
+class PreprocesamientoKnnTests(unittest.TestCase):
     def _fila(self, mac: str, rssi: int, timestamp: str, secuencia: int = 1) -> dict[str, str]:
         return {
             "timestamp_utc_pc": timestamp, "sesion_gateway": "1", "jugador_id": "1",

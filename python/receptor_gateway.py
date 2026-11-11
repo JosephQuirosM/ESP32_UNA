@@ -23,6 +23,7 @@ from typing import Any
 
 from cuadricula import validar_cuadricula
 from control_gateway import ControlGatewayUdp
+from detectar_hotspot import detectar_hotspot
 
 MAXIMO_UINT32 = 4_294_967_295
 MAXIMO_REGISTROS_LOTE = 8
@@ -250,8 +251,8 @@ def argumentos() -> argparse.Namespace:
     parser.add_argument("--esperar-inicio", action="store_true", help="Prepara el receptor; el backend inicia el plazo tras el ACK")
     parser.add_argument("--iniciar-archivo", type=Path, help="Señal persistente de inicio tras confirmar el Gateway")
     parser.add_argument("--cuadricula-json", help="Geometría de la captura guiada para conservar en el CSV")
-    parser.add_argument("--archivo", type=Path, default=Path("data/raw/lecturas_mvp.csv"))
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--archivo", type=Path, default=Path("data/raw/lecturas.csv"))
+    parser.add_argument("--host", help="IP del hotspot detectado; sin valor se detecta automáticamente")
     parser.add_argument("--puerto-http", type=int, default=8080)
     parser.add_argument("--destino-udp", default="192.168.4.255")
     parser.add_argument("--puerto-udp", type=int, default=4210)
@@ -276,6 +277,13 @@ def argumentos() -> argparse.Namespace:
         parser.error("--sin-anuncio-udp requiere --esperar-inicio para recibir autorización del backend")
     if args.duracion is not None and (not 0 < args.duracion <= 86400):
         parser.error("la duración debe ser positiva y no superar 86400 segundos")
+    if args.host in ("0.0.0.0", "::"):
+        parser.error("el receptor no puede escuchar en todas las interfaces")
+    if args.host not in ("127.0.0.1", "::1"):
+        hotspot = detectar_hotspot()
+        if not hotspot or (args.host and args.host != hotspot["ip"]):
+            parser.error("no se detecta el hotspot indicado; el receptor sólo puede iniciarse en loopback")
+        args.host = hotspot["ip"]
     return args
 
 
@@ -285,6 +293,15 @@ def main() -> int:
     escritor = EscritorCsv(args.archivo, nuevo=args.nuevo, cuadricula=validar_cuadricula(args.cuadricula_json) if args.cuadricula_json else None)
     detener = threading.Event()
     iniciar = threading.Event()
+    if args.host not in ("127.0.0.1", "::1"):
+        def vigilar_red() -> None:
+            while not detener.wait(3):
+                actual = detectar_hotspot()
+                if not actual or actual["ip"] != args.host:
+                    detener.set()
+                    return
+
+        threading.Thread(target=vigilar_red, name="vigilar-red", daemon=True).start()
     motivo = "detenida"
     estado: dict[str, Any] = {
         "estado": "iniciando", "pid": os.getpid(), "filasEscritas": 0,

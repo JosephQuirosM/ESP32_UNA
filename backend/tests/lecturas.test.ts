@@ -116,7 +116,7 @@ test("API local con el receptor Python real", async (t) => {
     const respuesta = await fetch(`${url}/api/lecturas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(carga),
+      body: JSON.stringify({ ...(carga as object), directorioSalida: directorio }),
     });
     return { respuesta, captura: (await respuesta.json()) as Captura };
   }
@@ -256,20 +256,16 @@ test("API local con el receptor Python real", async (t) => {
     }
   });
   await t.test(
-    "Errores de escritura conservan un resultado explícito",
+    "Una carpeta sin permisos se rechaza antes de crear la captura",
     async () => {
       if (process.platform === "win32") {
         return;
       }
       chmodSync(directorio, 0o555);
       try {
-        const { captura } = await iniciar(solicitud("sin_permisos", 1));
-        const resultado = await esperar(
-          () => gestor.obtener(captura.id),
-          terminal,
-        );
-        assert.equal(resultado.estado, "error");
-        assert.match(resultado.error!, /CSV|Permission|permiso/i);
+        const { respuesta, captura } = await iniciar(solicitud("sin_permisos", 1));
+        assert.equal(respuesta.status, 400);
+        assert.match((captura as unknown as { error: string }).error, /carpeta|escribir/i);
       } finally {
         chmodSync(directorio, 0o755);
       }
@@ -308,7 +304,7 @@ test("El receptor termina y se recupera después de interrumpir el backend", asy
   let id: string | null = null;
   let salida = "";
   function levantar() {
-    backend = spawn(process.execPath, ["dist/backend/src/index.js"], {
+    backend = spawn(process.execPath, ["--import", "tsx", "tests/backendReinicio.ts"], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -360,7 +356,7 @@ test("El receptor termina y se recupera después de interrumpir el backend", asy
     await fetch(`${url}/api/lecturas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(carga),
+      body: JSON.stringify({ ...carga, directorioSalida: directorio }),
     })
   ).json()) as Captura;
   id = captura.id;
@@ -404,7 +400,7 @@ test("El receptor termina y se recupera después de interrumpir el backend", asy
     await fetch(`${url}/api/lecturas`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(carga),
+      body: JSON.stringify({ ...carga, directorioSalida: directorio }),
     })
   ).json()) as Captura;
   assert.equal(duplicada.id, id);

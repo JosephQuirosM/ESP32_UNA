@@ -14,7 +14,7 @@ except ModuleNotFoundError:
     ML = False
 else:
     ML = True
-from mvp_config import COLUMNAS_CARACTERISTICAS
+from config_rssi import COLUMNAS_CARACTERISTICAS
 
 
 @unittest.skipUnless(ML, "Ejecutar con .venv/bin/python")

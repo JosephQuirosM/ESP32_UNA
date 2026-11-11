@@ -1,10 +1,10 @@
 # Arquitectura actual
 
-Revisión documental: 4 de noviembre de 2026. Este documento describe el código del repositorio; no certifica una prueba física ni la calidad de un modelo local. Las propuestas de ampliación se mantienen en el [roadmap](../ROADMAP_CODEX_MAPA_CALOR_ESP32.md).
+Revisión documental: 4 de noviembre de 2026. Este documento describe el código del repositorio; no certifica una prueba física ni la calidad de un modelo local.
 
 ## Componentes y despliegue
 
-El MVP usa seis IdeaBoard ESP32: un jugador, cuatro torres y un Gateway. La PC ejecuta Express/TypeScript, el receptor y los procesos de análisis Python. El navegador ejecuta React/TypeScript. Todo el procesamiento y almacenamiento se realiza en la PC; un móvil conectado al hotspot puede controlar la recolección.
+El sistema usa hasta diez jugadores IdeaBoard ESP32 por sesión del Gateway, cuatro torres y un Gateway. La PC ejecuta Express/TypeScript, el receptor y los procesos de análisis Python. El navegador ejecuta React/TypeScript. Todo el procesamiento y almacenamiento se realiza en la PC; un móvil conectado al hotspot puede controlar la recolección.
 
 ```text
 Jugador -- beacon ESP-NOW broadcast --> Torres (x4)
@@ -82,11 +82,11 @@ Cada archivo crudo se procesa por separado. La clave del vector es `(sesion_gate
 [rssi_sup_izq, rssi_sup_der, rssi_inf_izq, rssi_inf_der]
 ```
 
-La tabla física está documentada en [mapa_torres_fisicas.md](mapa_torres_fisicas.md) y codificada en `python/mvp_config.py`; ambas deben mantenerse sincronizadas. Una MAC desconocida causa error. Los IDs dinámicos nunca eligen la columna del modelo.
+La tabla física está documentada en [mapa_torres_fisicas.md](mapa_torres_fisicas.md) y codificada en `python/config_rssi.py`; ambas deben mantenerse sincronizadas. Una MAC desconocida causa error. Los IDs dinámicos nunca eligen la columna del modelo.
 
 El resultado incluye sesiones, secuencia, `elapsed_s`, `zona`, `dataset`, `archivo_origen`, las cuatro RSSI, `faltantes`, `completo` y `cuadricula`. Los vectores incompletos se conservan marcados y se excluyen del entrenamiento y la predicción. La preparación requiere al menos un vector completo en el conjunto.
 
-La etiqueta se asigna explícitamente por archivo en la web; en CLI se obtiene de `zona_N` en el nombre o de `--zona`. `dataset` es opcional. No se infieren zonas mediante bloques temporales ni se recortan los primeros 6 s, una cantidad fija de filas o periodos de transición. Las constantes temporales heredadas de `mvp_config.py` no controlan el preprocesamiento actual.
+La etiqueta se asigna explícitamente por archivo en la web; en CLI se obtiene de `zona_N` en el nombre o de `--zona`. `dataset` es opcional. No se infieren zonas mediante bloques temporales ni se recortan los primeros 6 s, una cantidad fija de filas o periodos de transición. Las constantes temporales heredadas de `config_rssi.py` no controlan el preprocesamiento actual.
 
 ## Backend, procesos y persistencia
 

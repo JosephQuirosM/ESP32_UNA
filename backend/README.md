@@ -1,6 +1,6 @@
 # Backend local de captura y análisis
 
-Este backend se ejecuta en la PC de captura junto con Python; el frontend se ejecuta en el navegador de la PC o de un dispositivo conectado a su red. La API y el frontend escuchan en `0.0.0.0:8000`, accesibles desde la PC y los dispositivos de su red. Antes de empezar la recolección, el usuario puede indicar una carpeta existente de esa PC para los CSV; por defecto se usa `data/raw`. El botón «Explorar» abre el selector de carpetas en la PC del backend y solo está disponible al acceder desde ella. El Gateway se conecta al hotspot Wi-Fi de la PC y envía registros con movimiento al receptor Python en HTTP 8080. No utiliza servidores remotos.
+Este backend se ejecuta en la PC de captura junto con Python; el frontend se ejecuta en el navegador de la PC o de un dispositivo conectado al hotspot. La administración escucha en `127.0.0.1:8000`; el panel para dispositivos del hotspot sólo abre `IP_DEL_HOTSPOT:8000` cuando se detecta su interfaz, y exige un código de acceso. Antes de empezar la recolección, la PC anfitriona autoriza una carpeta de trabajo existente para los CSV. En el primer uso no hay una ruta preseleccionada. El móvil puede explorar las carpetas autorizadas; el selector nativo sólo está disponible en la PC anfitriona. El Gateway se conecta al hotspot Wi-Fi de la PC y envía registros con movimiento al receptor Python en HTTP 8080. No utiliza servidores remotos.
 
 ## Preparación y uso
 
@@ -21,9 +21,9 @@ Para levantar la aplicación:
 npm start
 ```
 
-En la PC abra `http://localhost:8000`. En el móvil conectado al hotspot abra `http://IP_DE_LA_PC:8000`, usando la IP de la interfaz que crea el hotspot. El backend imprime las direcciones IPv4 disponibles al arrancar. En Linux Mint puede consultarlas con `nmcli -f GENERAL.DEVICE,GENERAL.CONNECTION,IP4.ADDRESS device show`; busque la conexión del hotspot y omita la máscara `/24` al escribir la URL. Si el móvil no puede acceder, compruebe que el firewall permita TCP 8000 desde el hotspot. El backend sirve la interfaz compilada y ejecuta procesos Python cuando se solicita una captura, preparación, inspección de CSV, entrenamiento o generación de mapas. No necesita otro comando por CSV. Después de editar la interfaz o el backend, ejecute `npm run build` nuevamente.
+En la PC abra `http://localhost:8000`. En el móvil conectado al hotspot abra `http://IP_DE_LA_PC:8000`, usando la IP de la interfaz que crea el hotspot, e introduzca el código mostrado en la consola o en «Carpetas» de la PC. El backend imprime la dirección del hotspot cuando la detecta. En Linux Mint puede consultarla con `nmcli -f GENERAL.DEVICE,GENERAL.CONNECTION,IP4.ADDRESS device show`; busque la conexión del hotspot y omita la máscara `/24` al escribir la URL. Si el móvil no puede acceder, consulte el estado «Red privada» en el panel local; el backend no abre el puerto público si no detecta el hotspot. El backend sirve la interfaz compilada y ejecuta procesos Python cuando se solicita una captura, preparación, inspección de CSV, entrenamiento o generación de mapas. No necesita otro comando por CSV. Después de editar la interfaz o el backend, ejecute `npm run build` nuevamente.
 
-El usuario debe activar el hotspot de la PC (2.4 GHz, canal 6 por defecto), configurar su nombre y clave en `firmware/Gateway/config.h` y cargar el firmware del Gateway. Gateway, torres y jugador deben compartir el canal. El Gateway calcula el broadcast de su red y anuncia su presencia cada dos segundos. El backend escucha en UDP 4210 incluso sin una captura, y responde al emisor con la disponibilidad del receptor. No necesita configurar `RECEPTOR_DESTINO_UDP` para usar la web. Encienda el Gateway y luego las torres y el jugador. Los CSV y HTTP sigue en `/v1/registros` y el esquema CSV es v4; el descubrimiento UDP ahora lo inicia el Gateway; el backend no crea el hotspot.
+El usuario debe activar el hotspot de la PC (2.4 GHz, canal 6 por defecto), configurar su nombre y clave en `firmware/Gateway/config.local.h` y cargar el firmware del Gateway. El archivo local se ignora en Git; sin él, el firmware usa valores de ejemplo. Gateway, torres y jugador deben compartir el canal. El Gateway calcula el broadcast de su red y anuncia su presencia cada dos segundos. Tras verificar la protección, el backend escucha en UDP 4210 incluso sin una captura, y responde al emisor con la disponibilidad del receptor. No necesita configurar `RECEPTOR_DESTINO_UDP` para usar la web. Encienda el Gateway y luego las torres y el jugador. Los CSV y HTTP siguen en `/v1/registros` y el esquema CSV es v4; el descubrimiento UDP ahora lo inicia el Gateway; el backend no crea el hotspot.
 
 ## Capturas
 
@@ -48,17 +48,17 @@ npm run dev --prefix backend
 npm run dev --prefix frontend
 ```
 
-En este modo de dos terminales, abra el frontend en `http://IP_DEL_HOTSPOT:5173` desde el móvil (o `http://localhost:5173` en la PC). Vite comunica `/api` con el backend local en 8000. Permita TCP 5173 desde el hotspot si usa firewall. La interfaz de producción se abre en 8000 y no necesita Vite. Solo un proceso backend debe estar escuchando en ese puerto.
+En desarrollo con dos terminales, abra Vite en `http://localhost:5173` sólo desde la PC. Vite comunica `/api` con el backend local en 8000 y no se expone al hotspot. Para móviles compile el frontend y abra el panel servido por el backend en `http://IP_DEL_HOTSPOT:8000`. Solo un proceso backend debe estar escuchando en ese puerto.
 
 ## Configuración del entorno
 
 | Variable | Valor inicial | Uso |
 |---|---|---|
 | `PYTHON_EJECUTABLE` | Python de `.venv` si existe; si no `python` en Windows o `python3` en Linux | Ruta del intérprete. |
-| `HOST_BACKEND` | `0.0.0.0` | Interfaces de escucha; use la IP del hotspot para limitarlo a esa red o `127.0.0.1` para acceso solo desde la PC. |
+| `HOST_BACKEND` | No se usa | El backend abre loopback y, tras verificar la protección, la IP detectada del hotspot. |
 | `PUERTO_BACKEND` | `8000` | Puerto de la interfaz y API local. |
-| `DIRECTORIO_DATOS` | `data/raw` del repositorio | Directorio de CSV y metadatos. |
-| `RECEPTOR_HOST` | `0.0.0.0` | Interfaz de escucha del receptor. |
+| `DIRECTORIO_DATOS` | `data/raw` del repositorio | Directorio interno para metadatos y trabajos; no preselecciona una carpeta de salida en la interfaz. |
+| `RECEPTOR_HOST` | No se usa en el panel | El receptor de capturas escucha en la IP detectada del hotspot. |
 | `RECEPTOR_PUERTO_HTTP` | `8080` | Puerto anunciado al Gateway. |
 | `RECEPTOR_DESTINO_UDP` | `192.168.4.255` | Valor legado; la captura web desactiva los anuncios desde Python y ya no depende de este destino. |
 | `RECEPTOR_PUERTO_UDP` | `4210` | Puerto donde el backend escucha al Gateway; debe coincidir con su config.h. |
@@ -95,17 +95,28 @@ El preprocesamiento actual usa zona explícita por archivo y no divide en bloque
 
 ## API de preparación de datos
 
-`POST /api/preparacion` recibe JSON `{archivos: [{nombre, contenido, zona}], cuadricula?}` con CSV UTF-8 (máximo 32 MB de cuerpo). Ejecuta `python/preparar_datos_web.py` usando el Python configurado para el receptor. Valida etiquetas explícitas y columnas RSSI, procesa cada archivo por separado y guarda `dataset_etiquetado.csv` y su resumen JSON en `data/processed/preparaciones/<UUID>/`. No inicia el entrenamiento ni modifica capturas.
+`POST /api/preparacion` recibe JSON `{archivos: [{nombre, contenido, zona}]}` para archivos cargados desde el navegador, o `{archivos: [{ruta, zona}]}` para CSV existentes dentro de una raíz autorizada; ambos admiten `cuadricula?` y `directorioSalida`. El límite conjunto es 28 MB de CSV y 32 MB de cuerpo HTTP. Ejecuta `python/preparar_datos_web.py` usando el Python configurado para el receptor. Valida etiquetas explícitas y columnas RSSI, procesa cada archivo por separado y guarda `dataset_etiquetado.csv` y su resumen JSON en `data/processed/preparaciones/<UUID>/`. No inicia el entrenamiento ni modifica capturas.
 
 La respuesta incluye los conteos, zonas, procedencia y enlaces `GET /api/preparacion/:id/csv` y `GET /api/preparacion/:id/resumen`. Rechaza CSV vacíos, columnas o MAC desconocidas, etiquetas inválidas y nombres duplicados. Si falla cualquier archivo, no publica un resultado parcial.
 
-La preparación acepta `directorioSalida` opcional (carpeta existente, absoluta o relativa al proyecto). Exporta allí el CSV y el JSON sin sobrescribir archivos: usa sufijos `_2`, `_3`, etc. La respuesta incluye `rutaSalida`. Mantiene una copia interna para las descargas. `POST /api/preparacion/seleccionar-carpeta` con `{ruta}` abre el selector nativo en el escritorio de la PC; sin ruta comienza en el proyecto y al cancelar devuelve `ruta: null`. En Linux usa Zenity y necesita una sesión gráfica activa. La exploración y exportación a rutas elegidas requieren una conexión desde la misma PC.
+La preparación requiere `directorioSalida` (carpeta existente, absoluta o relativa al proyecto). Exporta allí el CSV y el JSON sin sobrescribir archivos: usa sufijos `_2`, `_3`, etc. La respuesta incluye `rutaSalida`. Mantiene una copia interna para las descargas. `POST /api/preparacion/seleccionar-carpeta` con `{ruta}` abre el selector nativo en el escritorio de la PC; sin ruta comienza en el proyecto y al cancelar devuelve `ruta: null`. En Linux usa Zenity y necesita una sesión gráfica activa. El selector nativo sólo funciona al acceder desde la PC del backend. Desde otra PC se pueden explorar las carpetas autorizadas o escribir una ruta dentro de ellas.
 
 El campo `dataset` es opcional por compatibilidad con entradas antiguas; su ausencia no impide preparar ni entrenar y la web ya no lo envía. No se deduce un dataset por defecto a partir de nombres de archivo.
 
+### Separación por jugadores
+
+La sección **Jugadores** de Preparación usa `/api/preparacion/jugadores` y comparte con Mapas la lectura, separación, ordenación y las estadísticas de `python/jugadores_mapas.py`:
+
+- `POST /` con `{entrada, directorioSalida, nombre}` inicia un trabajo asíncrono y devuelve HTTP 202 con su `id`. El CSV de entrada puede ocupar hasta 100 MB. Ambas rutas deben existir y estar dentro de carpetas autorizadas.
+- `POST /seleccionar` abre el selector nativo de CSV sólo en la PC anfitriona; el móvil usa el explorador web de las carpetas autorizadas.
+- `GET /:id` devuelve estado, progreso, identidad y estadísticas por jugador y enlaces de descarga. El último trabajo se recupera tras recargar la página o reiniciar el backend.
+- `GET /:id/archivo/:indice` descarga las lecturas de un jugador; `GET /:id/resumen/csv` y `/json` descargan el resumen general.
+
+El proceso no exige `.joblib`, no predice zonas y no genera PNG. Separa cada `(sesion_gateway, jugador_id)` con máximo 10 jugadores por sesión del Gateway; conserva filas y duplicados y las ordena por sesión de arranque del jugador, secuencia y `torre_id`. Los porcentajes sólo cubren el intervalo entre primera y última secuencia observadas de cada sesión. Los CSV preparados se aceptan, pero las métricas de paquetes que requieren lecturas crudas aparecen como no disponibles. Exporta con nombres libres de colisiones y guarda solicitud, PID y estado en `data/processed/preparaciones_jugadores/<UUID>/`. La carpeta de salida se recuerda para usos posteriores; al retirar su autorización se bloquean nuevas operaciones y descargas.
+
 ## API de entrenamiento
 
-Las operaciones de `/api/entrenamiento` requieren una conexión desde esta PC:
+Las operaciones de `/api/entrenamiento` admiten clientes con código del hotspot; sólo el selector nativo requiere usar la PC anfitriona:
 
 - `POST /seleccionar-csv`: abre el selector nativo de archivo CSV y devuelve su ruta (null si se cancela).
 - `POST /inspeccionar` con `{entrada}`: valida un CSV preparado y devuelve cantidades y etiquetas presentes.
@@ -113,14 +124,14 @@ Las operaciones de `/api/entrenamiento` requieren una conexión desde esta PC:
 - `GET /:id`: consulta estado pendiente, entrenando, completado o error y rutas del resultado.
 - `GET /:id/modelo` y `GET /:id/resumen`: descargan artefactos terminados.
 
-Ejecuta `python/entrenamiento_web.py` con el Python configurado y las dependencias de `requirements.txt`. Conserva solicitud, estado, modelo y resumen en `models/entrenamientos/<UUID>/`. Exporta modelo y resumen a la carpeta elegida, o `models/` por defecto, con nombres libres de colisiones. El CSV original no se modifica. El entrenamiento usa las cuatro RSSI y las zonas positivas presentes en los vectores completos, sin restricciones por dataset ni evaluación automática. KNN guarda la normalización junto al clasificador si se habilita. Una tarea por vez, máximo 100 MB de CSV y 15 minutos por entrenamiento.
+Ejecuta `python/entrenamiento_web.py` con el Python configurado y las dependencias de `requirements.txt`. Conserva solicitud, estado, modelo y resumen en `models/entrenamientos/<UUID>/`. Exporta modelo y resumen a la carpeta elegida, con nombres libres de colisiones. El CSV original no se modifica. El entrenamiento usa las cuatro RSSI y las zonas positivas presentes en los vectores completos, sin restricciones por dataset ni evaluación automática. KNN guarda la normalización junto al clasificador si se habilita. Una tarea por vez, máximo 100 MB de CSV y 15 minutos por entrenamiento.
 
 ## API de mapas de calor
 
-`/api/mapas` requiere acceso desde la misma PC:
+`/api/mapas` admite clientes con código del hotspot; sólo el selector nativo requiere usar la PC anfitriona:
 
 - `POST /seleccionar` con `{tipo: "csv"|"joblib"}`: selector nativo, múltiple para CSV y simple para modelo; devuelve `{archivos: [...]}` y un arreglo vacío si se cancela.
-- `POST /` con `{entradas: string[], modelo, nombre, directorioSalida, ventana, cuadricula?}`: valida rutas, inicia Python y devuelve HTTP 202 con `id`. Máximo 50 CSV, 100 MB por archivo y 200 MB de CSV en total. `directorioSalida` vacío usa `data/processed/mapas/`.
+- `POST /` con `{entradas: string[], modelo, nombre, directorioSalida, ventana, cuadricula?}`: valida rutas, inicia Python y devuelve HTTP 202 con `id`. Máximo 50 CSV, 100 MB por archivo y 200 MB de CSV en total. `directorioSalida` es obligatorio y debe apuntar a una carpeta existente en la PC del backend.
 - `GET /:id`: estado, progreso por archivos, configuración y resultados con URLs de imágenes y descargas.
 - `GET /:id/archivo/:indice/imagen`: PNG para la galería. Tipos `png`, `csv`, `lecturas` y `json` permiten descargar imagen, predicciones, lecturas originales ordenadas y resumen. Un jugador sin vectores completos devuelve 404 para imagen/PNG y conserva sus demás descargas. Los trabajos antiguos conservan sus rutas previas.
 - `GET /:id/resumen/csv` y `GET /:id/resumen/json`: resumen general del trabajo. Disponibles al finalizar la generación.
@@ -152,3 +163,19 @@ El receptor web se inicia con `--captura-id`, `--esperar-inicio`, `--iniciar-arc
 Los resultados de mapas añaden `jugadorId`, `sesionGateway`, `tieneMapa`, `estadisticas`, `lecturas` y `rutaLecturas`. El estado mantiene `total`/`procesados` como archivos y añade `mapasGenerados`, `jugadoresProcesados`, `resumenGeneralCsv`/`resumenGeneralJson`. Sin vectores completos se publica el resultado con imagen nula y sin ejecutar predicción. El CSV separado conserva todas las columnas y valores, ordenados numéricamente por sesión, secuencia y `torre_id` (empates estables).
 
 Por sesión se estima `secuencias_esperadas = max(secuencia) - min(secuencia) + 1`; se suman los rangos por jugador. `paquetes_esperados = secuencias_esperadas × 4`. La recepción utiliza paquetes únicos por sesión/secuencia/MAC física. Los vectores completos requieren las cuatro MAC registradas; su porcentaje usa las secuencias esperadas. El JSON/CSV general incluye duplicados, secuencias ausentes e incompletos observados. Sólo se mide el rango observado, no pérdidas anteriores/posteriores ni la causa de las pérdidas. Los CSV preparados no permiten reconstruir paquetes: esas métricas son `null` en JSON y celdas vacías en CSV.
+
+## Rutas recordadas
+
+La interfaz comienza con campos de rutas vacíos en una instancia nueva. Después de usar una carpeta de recolección o preparación, un CSV de entrenamiento, una carpeta de modelos, entradas o modelo de mapas, o una carpeta de resultados, el backend recuerda las rutas en `DIRECTORIO_DATOS/.config/rutas-preferidas.json`. Al reiniciar el backend o abrir otro navegador conectado a la misma instancia, se recuperan sólo las rutas que todavía existen. El selector nativo sólo se ofrece en la PC anfitriona. Los clientes remotos cuentan con un explorador web limitado a las carpetas autorizadas, que permite crear subcarpetas y elegir CSV almacenados en la PC para Preparación. Las rutas antiguas fuera de esas carpetas no se muestran ni se descargan.
+
+## Acceso desde el hotspot
+
+El usuario activa el hotspot desde Windows o Linux; este proyecto no crea puentes ni modifica su conexión externa. El backend detecta la conexión privada activa sin permisos de administrador, abre el panel en su IP y mantiene `localhost:8000` para la PC. Cada dispositivo remoto debe introducir el código que aparece en la consola y en «Carpetas» de la PC. El código cambia al reiniciar el backend; las sesiones del navegador caducan a las 24 horas. El acceso se comprueba antes de servir el frontend, cualquier API o descarga. Las peticiones de cambio de estado deben provenir del mismo origen.
+
+En la PC anfitriona abra `http://localhost:8000`, entre a **Carpetas** y autorice una o más carpetas de trabajo existentes. Los dispositivos con código podrán explorar sus archivos, crear subcarpetas inmediatas, descargar archivos y elegir entradas y destinos dentro de ellas. Preparación acepta CSV almacenados en la PC sin pasarlos por el celular. Quitar una raíz revoca nuevas operaciones y descargas. Si el hotspot desaparece o cambia de IP, el acceso remoto se cierra y una captura activa se detiene. El estado aparece en Inicio y Carpetas. Si no se reconoce de forma única un hotspot del sistema, permanece cerrado el acceso remoto. Linux requiere NetworkManager; Windows usa la información de la conexión compartida de Windows.
+
+La API del explorador ofrece `GET /api/archivos/raices`, `GET /api/archivos?raiz=ID&ruta=SUBCARPETA`, `POST /api/archivos/carpetas` con `{raiz, ruta, nombre}` y `GET /api/archivos/descargar?ruta=ARCHIVO`. Todas las rutas se resuelven de nuevo en el servidor y deben permanecer dentro de una raíz vigente. Crear carpetas no permite rutas arbitrarias, sobrescribir archivos ni seguir enlaces simbólicos fuera de la raíz.
+
+El tráfico del hotspot sigue usando HTTP sin cifrar; alguien que observe ese tráfico podría capturar el código o una sesión. Se asume ese riesgo en esta red privada. No autorice la raíz completa del disco ni carpetas que contengan información ajena al proyecto.
+
+Sin reglas de firewall por interfaz, un equipo de otra red que consiga una ruta hacia la IP del hotspot podría alcanzar la pantalla de código. No podrá usar el panel ni las APIs sin una sesión válida, pero el bloqueo del puerto en esa situación no está garantizado. Verifique desde el hotspot que el código funciona y desde la red externa que una sesión sin código no accede a archivos ni operaciones.
