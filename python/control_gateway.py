@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import errno
 from pathlib import Path
 import re
 import socket
@@ -36,6 +37,7 @@ class ControlGatewayUdp:
         self._destino = None
         self._sesion = None
         self._mac = None
+        self._sesiones_retiradas = set()
         self._ultimo_envio = 0.0
         self._guardar()
         self._hilo = threading.Thread(target=self._ejecutar, name="control-gateway", daemon=True)
@@ -55,8 +57,23 @@ class ControlGatewayUdp:
         id_captura = "-" if self._cerrando.is_set() else self.captura_id
         puerto = 0 if self._cerrando.is_set() else self.puerto_http
         mensaje = f"HEATMAP_PC_V3 {self._sesion} {self.revision} {id_captura} {puerto}".encode("ascii")
-        self._socket.sendto(mensaje, self._destino)
+        try:
+            self._socket.sendto(mensaje, self._destino)
+        except OSError as error:
+            # Cambiar de red puede dejar temporalmente sin ruta al Gateway.
+            if error.errno not in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN,
+                                   errno.ECONNRESET, errno.EADDRNOTAVAIL):
+                raise
         self._ultimo_envio = time.monotonic()
+
+    def _recuperar(self, sesion):
+        if self._cerrando.is_set():
+            return
+        self._sesion = sesion
+        self.revision = max(int(time.time() * 1000), self.revision + 1)
+        self.confirmado.clear()
+        self._guardar()
+        self._enviar()
 
     def _recibir(self, mensaje, origen):
         if len(mensaje) > 1024:
@@ -69,7 +86,7 @@ class ControlGatewayUdp:
                 if ack[3] == b"-" and int(ack[4]) == 0: self._ack_cierre.set()
             elif ack[3].decode("ascii") == self.captura_id:
                 if int(ack[4]) == self.puerto_http: self.confirmado.set()
-                else: self.fallo = "La autorización del Gateway venció; comienza otra captura"
+                elif int(ack[4]) == 0: self._recuperar(self._sesion)
             return
         if not mensaje.startswith(PREFIJO):
             return
@@ -79,7 +96,8 @@ class ControlGatewayUdp:
         sesion = anuncio.get("sesion")
         if type(sesion) is not int or not 0 < sesion <= 0xffffffff:
             return
-        if self._mac is not None and anuncio["mac"] != self._mac:
+        mac = anuncio["mac"].upper()
+        if self._mac is not None and mac != self._mac:
             return
         if anuncio.get("controlCaptura") != 1:
             self.fallo = "Actualiza el firmware del Gateway: no admite control de capturas"
@@ -87,15 +105,24 @@ class ControlGatewayUdp:
         revision = anuncio.get("revisionControl")
         if type(revision) is not int or not 0 <= revision < 9007199254740991:
             return
-        if self._sesion is not None and sesion != self._sesion:
-            self.fallo = "El Gateway se reinició durante la captura"
+        if sesion in self._sesiones_retiradas:
             return
         if self._destino is None:
-            self._destino, self._sesion, self._mac = origen, sesion, anuncio["mac"]
+            self._destino, self._sesion, self._mac = origen, sesion, mac
             self.revision = max(self.revision, revision + 1)
             self._guardar()
         elif revision > self.revision:
             self.fallo = "Otro control reemplazó la autorización del Gateway"
+            return
+        self._destino = origen
+        if sesion != self._sesion:
+            self._sesiones_retiradas.add(self._sesion)
+            self._sesion = sesion
+            self._recuperar(sesion)
+            return
+        if (not self._cerrando.is_set() and revision == self.revision and
+                anuncio.get("capturaId") == self.captura_id and anuncio.get("capturando") is False):
+            self._recuperar(sesion)
             return
         self._enviar()
 
@@ -107,6 +134,11 @@ class ControlGatewayUdp:
                     with self._mutex: self._recibir(mensaje, origen)
                 except socket.timeout:
                     pass
+                except OSError as error:
+                    if error.errno not in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.ENETDOWN,
+                                           errno.ECONNRESET, errno.EADDRNOTAVAIL):
+                        raise
+                    self._cerrando.wait(.05)
                 except (ValueError, UnicodeError, TypeError):
                     continue
                 intervalo = 0.25 if self._cerrando.is_set() or not self.confirmado.is_set() else 2.0

@@ -28,7 +28,9 @@ El Gateway arranca inactivo. Continúa recibiendo ESP-NOW y atendiendo el regist
 
 Una activación nueva limpia bajo el mismo bloqueo del callback la cola de registros y habilita la nueva identidad. Antes de confirmar también elimina el lote HTTP pendiente y sus reintentos. Repetir la misma orden sólo renueva el plazo: no vuelve a limpiar una captura en curso.
 
-La desactivación, pérdida de Wi-Fi, cambio incompatible de canal o vencimiento de la autorización de 12 s cierran la admisión y limpian pendientes. Una renovación retrasada de una revisión ya cerrada o vencida no la reabre; debe comenzar otra captura con una revisión nueva. El panel marca al Gateway desconectado tras 10 s sin anuncios.
+La desactivación, pérdida de Wi-Fi o vencimiento de la autorización de 12 s cierran la admisión y limpian pendientes. Una renovación retrasada de una revisión ya cerrada o vencida no la reabre. Si la captura sigue activa en la PC, el backend envía automáticamente una revisión nueva conservando el UUID, el archivo y el reloj. La parada manual o el fin de duración cancelan esa recuperación. El panel marca al Gateway desconectado tras 10 s sin anuncios.
+
+Un cambio de canal que conserve la conexión Wi-Fi limpia los registros pendientes y mantiene la autorización vigente. Los nodos vuelven a buscar y registrar; pueden perderse lecturas durante ese intervalo. Si el cambio implica una desconexión, se cierra la admisión del Gateway y se recupera automáticamente la autorización. Python conserva el mismo CSV abierto y vuelve a escuchar en la IP del hotspot si cambia.
 
 ## Secuencia de una captura web
 
@@ -45,13 +47,13 @@ La desactivación, pérdida de Wi-Fi, cambio incompatible de canal o vencimiento
 
 Cada POST a `/v1/registros` incluye `X-Heatmap-Captura: UUID`. El receptor devuelve 409 si la identidad no coincide y 503 si está preparado pero aún no grabando, cerrando o sin capacidad de cola. Un POST de la captura anterior no puede escribirse en la siguiente aunque reutilicen el puerto.
 
-La revisión/orden se guarda en `<DIRECTORIO_DATOS>/.lecturas/.control-gateway.json`, junto con metadatos de captura, estados y señales de inicio/parada. Un reinicio corto del backend recupera el mismo ID y revisión, sin volver a vaciar la captura ni reiniciar su cronómetro. Si el receptor terminó, el Gateway reinició o la autorización ya venció, se conserva un resultado final o parcial y se exige una captura nueva.
+La revisión/orden se guarda en `<DIRECTORIO_DATOS>/.lecturas/.control-gateway.json`, junto con metadatos de captura, estados y señales de inicio/parada. Un reinicio corto del backend recupera el mismo ID y revisión, sin volver a vaciar la captura ni reiniciar su cronómetro. Si el receptor terminó, se conserva el resultado final o parcial y se exige una captura nueva. Si el receptor sigue grabando, el reinicio del mismo Gateway o una autorización vencida se recuperan con una revisión nueva y el mismo UUID; el proceso y el reloj de Python no se reinician.
 
 El receptor independiente por CLI implementa el mismo control en `python/control_gateway.py`, genera su UUID y espera el ACK antes de iniciar el tiempo. No se ejecuta a la vez que el backend: ambos necesitan UDP 4210. La opción heredada `--anuncio-udp-legacy` se rechaza; V1/V2 no ofrecen el aislamiento requerido.
 
 ## Actualización y prueba física
 
-Sólo se recarga el firmware del Gateway para este cambio. Jugador, torres y contrato ESP-NOW es v4 con movimiento del jugador. Un Gateway sin `controlCaptura: 1` produce un error que solicita actualizarlo; no se utiliza un modo de captura antiguo silenciosamente. El sufijo V1 del anuncio, V3 del control UDP y `/v1/registros` son identificadores de contratos diferentes.
+Para el control de captura original bastaba actualizar el Gateway. Para el descubrimiento de canal automático deben actualizarse Gateway, torres y jugadores; se conserva el contrato ESP-NOW v4 con movimiento del jugador. Consulte [canales automáticos](canales_automaticos.md). Un Gateway sin `controlCaptura: 1` produce un error que solicita actualizarlo; no se utiliza un modo de captura antiguo silenciosamente. El sufijo V1 del anuncio, V3 del control UDP y `/v1/registros` son identificadores de contratos diferentes.
 
 Permita UDP 4210 y HTTP 8080 desde el hotspot; HTTP 8000 sirve frontend y API. El backend no crea el hotspot. El LED verde confirma control válido de la PC, incluso con captura desactivada; no demuestra escritura CSV.
 

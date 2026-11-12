@@ -19,7 +19,6 @@ coverage/
 
 # Compilaciones locales de firmware.
 .pio/
-/firmware/Gateway/config.local.h
 
 # Datos locales: el backend crea estas carpetas cuando las necesita.
 /data/

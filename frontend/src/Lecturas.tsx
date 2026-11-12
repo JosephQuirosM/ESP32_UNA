@@ -747,6 +747,14 @@ export default function Lecturas({
                 )}
               </div>
             )}
+            {captura?.estado === "grabando" && conexionCaptura &&
+              (captura.redReceptor?.disponible === false ||
+                (servidor && !servidor.gateway.dispositivos.some(d => d.conectado && d.capturando))) && (
+              <p className="nota">
+                Reconectando con la red o el Gateway. La captura sigue abierta y
+                retomará las lecturas automáticamente en este mismo archivo.
+              </p>
+            )}
             {!conexionCaptura && (
               <p className="error">
                 Sin conexión para consultar el estado. Reconecta para detener

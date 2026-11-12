@@ -15,7 +15,7 @@ Navegador React <-- HTTP /api :8000 --> PC/backend Express --> procesos Python
 CSV --> vectores RSSI --> KNN / Random Forest --> predicciones y mapa PNG
 ```
 
-La PC crea el hotspot Wi-Fi y el Gateway se conecta a él como estación, con el nombre y la clave de `firmware/Gateway/config.local.h` (archivo local ignorado por Git). El hotspot debe usar 2.4 GHz y el mismo canal ESP-NOW que Gateway, torres y jugador (6 por defecto). El Gateway anuncia su presencia cada dos segundos al broadcast calculado de su red. El backend de la PC escucha UDP 4210 y responde por unicast; para una captura preparada autoriza su UUID y puerto HTTP, espera el ACK de limpieza y apertura, y después inicia la duración del receptor, que recibe lotes JSON v3 en `/v1/registros`. No es necesario configurar el broadcast en la PC para usar la interfaz web. El protocolo ESP-NOW también es v4; todos los dispositivos deben tener esta misma versión cargada.
+La PC crea el hotspot Wi-Fi y el Gateway se conecta a él como estación, con el nombre y la clave de `firmware/Gateway/config.h`. El hotspot debe usar 2.4 GHz. El Gateway adopta su canal y lo anuncia por ESP-NOW; jugadores y torres lo buscan automáticamente al arrancar y si cambia durante la ejecución. Consulte [canales automáticos](docs/canales_automaticos.md). El Gateway anuncia su presencia cada dos segundos al broadcast calculado de su red. El backend de la PC escucha UDP 4210 y responde por unicast; para una captura preparada autoriza su UUID y puerto HTTP, espera el ACK de limpieza y apertura, y después inicia la duración del receptor, que recibe lotes JSON v3 en `/v1/registros`. No es necesario configurar el broadcast en la PC para usar la interfaz web. El protocolo ESP-NOW también es v4; todos los dispositivos deben tener esta misma versión cargada.
 
 > Documentación vigente: [arquitectura y contratos](docs/arquitectura.md), [contexto del proyecto](docs/contexto.md) y [estado de implementación](docs/avances.md). La geometría física documentada es 6 m × 2,5 m; compruebe la geometría y procedencia de cada campaña antes de usar sus datos.
 
@@ -33,7 +33,7 @@ La PC crea el hotspot Wi-Fi y el Gateway se conecta a él como estación, con el
 1. Abra `firmware/Jugador/Jugador.ino` en Arduino IDE y cárguelo en la placa del jugador.
 2. Abra `firmware/Torre/Torre.ino` y cárguelo en cada una de las cuatro torres.
 3. Abra `firmware/Gateway/Gateway.ino` y cárguelo en la placa Gateway.
-4. Cree `firmware/Gateway/config.local.h` con el nombre y la clave de su hotspot; revise el canal en los tres `config.h`. Todas las placas deben compartir el mismo canal.
+4. Configure `NOMBRE_RED` y `CLAVE_RED` en `firmware/Gateway/config.h` antes de compilar y cargar el Gateway. El canal se descubre automáticamente; actualice también jugadores y torres para habilitar su búsqueda.
 
 ```cpp
 #pragma once
@@ -41,7 +41,7 @@ constexpr char NOMBRE_RED[] = "NOMBRE_DE_TU_HOTSPOT";
 constexpr char CLAVE_RED[] = "TU_CLAVE";
 ```
 
-El archivo local se ignora en Git. Sin él, el Gateway compila con valores de ejemplo y no se conectará a su hotspot.
+Las credenciales se guardan directamente en `config.h`; use los valores de su hotspot.
 
 No es necesario cambiar el ID al cargar cada jugador o torre. Con `ID_JUGADOR_RESPALDO=0` e `ID_TORRE_RESPALDO=0`, el Gateway asigna los IDs dinámicamente según la MAC durante cada arranque. Los cuatro GPIO del driver de motores integrado se fuerzan a nivel bajo al iniciar para evitar activaciones accidentales.
 
@@ -59,13 +59,13 @@ npm run build
 npm start
 ```
 
-Active el hotspot de la PC con las credenciales de `firmware/Gateway/config.local.h`, autorice una carpeta de trabajo en «Carpetas», encienda el Gateway, abra `http://localhost:8000` y configure el nombre y la duración en Recolección. El móvil abre la IP del hotspot y escribe el código mostrado en la PC. No se instala ningún servicio ni se piden permisos de administrador. El modo manual crea un CSV; el guiado crea un CSV por zona confirmada y permite saltar zonas sin crear archivos. No necesita escribir un comando Python por captura.
+Active el hotspot de la PC con las credenciales de `firmware/Gateway/config.h`, autorice una carpeta de trabajo en «Carpetas», encienda el Gateway, abra `http://localhost:8000` y configure el nombre y la duración en Recolección. El móvil abre la IP del hotspot y escribe el código mostrado en la PC. No se instala ningún servicio ni se piden permisos de administrador. El modo manual crea un CSV; el guiado crea un CSV por zona confirmada y permite saltar zonas sin crear archivos. No necesita escribir un comando Python por captura.
 
 Python controla el tiempo y cierra el CSV aunque el navegador pierda conexión. Antes de iniciar una captura se elige una carpeta existente en la PC del backend. Allí se guardan los CSV con fecha y hora de solicitud en Costa Rica por defecto, y pueden descargarse desde Datasets. Consulte [backend/README.md](backend/README.md) para configuración, recuperación y pruebas. La preparación ya admite estas capturas: asigna una zona por archivo y reúne las cuatro RSSI sin recortes por tiempo. El Gateway descarta lecturas fuera de captura y limpia cola, lote y reintentos en cada cambio de identidad. El botón muestra un spinner hasta que el Gateway confirma el inicio; entonces comienza el tiempo. Véase [el control de capturas](docs/descubrimiento_gateway.md).
 
 ## Receptor Python
 
-Active primero el hotspot de la PC y configure su nombre y clave en `firmware/Gateway/config.local.h` antes de cargar el Gateway. Como alternativa a la web, ejecute el receptor por terminal con un archivo nuevo:
+Active primero el hotspot de la PC y configure su nombre y clave en `firmware/Gateway/config.h` antes de cargar el Gateway. Como alternativa a la web, ejecute el receptor por terminal con un archivo nuevo:
 
 ```bash
 python3 python/receptor_gateway.py --archivo data/raw/captura_YYYY-MM-DD_HHMM.csv --nuevo
@@ -73,7 +73,7 @@ python3 python/receptor_gateway.py --archivo data/raw/captura_YYYY-MM-DD_HHMM.cs
 
 El receptor independiente escucha HTTP en 8080 y los anuncios del Gateway en UDP 4210. Responde al ESP32 por unicast, sin necesidad de configurar una IP ni un broadcast. No ejecute esta alternativa junto con el backend: ambos necesitan el puerto UDP. El CLI también exige la confirmación de limpieza y apertura antes de iniciar su plazo. El modo `--anuncio-udp-legacy` ya no se admite: actualice el Gateway.
 
-El Gateway recibe su IP por DHCP y reintenta conectarse al hotspot cada diez segundos. Si el canal no coincide, informa el error por serial y no inicia el envío de registros; ajuste el canal y reconecte. Para detener el receptor, use `Ctrl+C`; HTTP, UDP y el CSV se cierran de forma ordenada. El CSV v4 conserva sesiones, secuencias, tiempos locales, hora UTC de la PC y estado de movimiento. Los CSV históricos sin la columna de movimiento siguen siendo válidos. No anexe una captura v4 a un CSV v3.
+El Gateway recibe su IP por DHCP y reintenta conectarse al hotspot cada diez segundos. El canal se obtiene del hotspot; los nodos lo encuentran escuchando los anuncios del Gateway. Un cambio de canal mantiene la captura si la conexión Wi-Fi y la autorización siguen vigentes; una desconexión cierra la autorización temporalmente y el backend la recupera con una revisión nueva sobre el mismo CSV, sin reiniciar la partida. Para detener el receptor, use `Ctrl+C`; HTTP, UDP y el CSV se cierran de forma ordenada. El CSV v4 conserva sesiones, secuencias, tiempos locales, hora UTC de la PC y estado de movimiento. Los CSV históricos sin la columna de movimiento siguen siendo válidos. No anexe una captura v4 a un CSV v3.
 
 Después de instalar las dependencias de análisis en `.venv`, ejecute las pruebas locales con:
 
@@ -148,7 +148,7 @@ Consulte [docs/prueba_campo_captura.md](docs/prueba_campo_captura.md) antes de r
 
 ## Diagnóstico rápido
 
-- Si las torres no reciben, confirme que el Gateway usa canal 6 y que jugador/torres no se conectaron a otra red Wi-Fi.
+- Si las torres no reciben, consulte `Buscando Gateway` y `Gateway encontrado` por serial. Espere a que cada nodo muestre su ID y el mismo canal real del Gateway; revise que el hotspot esté en 2.4 GHz.
 - Si el Gateway muestra `destino_pc=no` antes de capturar, es normal: aún no hay receptor activo. La web debe mostrar «Comunicando con la PC». Al cambiar de captura, el serial publica `Control captura`, con revisión, ID y puerto; sin captura el puerto es 0. Si no confirma la PC, revise que el backend escuche UDP 4210 y que el firewall permita los anuncios del hotspot.
 - Si aparece `HTTP falló` o `HTTP descartó lote`, revise que el firewall de la PC permita conexiones HTTP al puerto 8080 y anuncios UDP al puerto 4210 desde la red del hotspot de la PC.
 - Los IDs se reservan por MAC mientras el Gateway está encendido; reiniciarlo reinicia esa reserva. Cada torre debe mostrar un ID distinto por serial.

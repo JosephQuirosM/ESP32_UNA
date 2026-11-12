@@ -523,8 +523,8 @@ export default function App() {
                   <div className="nota">
                     <Info size={18} />
                     <span>
-                      El canal y la red se configuran en el firmware. Esta
-                      pantalla no aplica cambios a los dispositivos.
+                      El canal sigue automáticamente al hotspot. El nombre y la clave
+                      de la red se configuran en el firmware del Gateway.
                     </span>
                   </div>
                   <button

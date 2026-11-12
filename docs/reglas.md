@@ -3,7 +3,7 @@
 1. Código, comentarios, mensajes seriales y documentación se escriben en español.
 2. Cada función tiene una única responsabilidad y las funciones principales incluyen un comentario descriptivo.
 3. `firmware/Comun/Paquete.h` es la única fuente de verdad del protocolo. Cualquier cambio incompatible exige incrementar `VERSION_PROTOCOLO`.
-4. Todos los dispositivos usan ESP-NOW y Wi‑Fi de 2.4 GHz en el mismo canal, configurado en los `config.h`.
+4. Todos los dispositivos usan ESP-NOW y Wi‑Fi de 2.4 GHz en el canal real del hotspot. El Gateway lo anuncia; los nodos lo descubren y recuperan automáticamente dentro del rango regional permitido por el driver. No se fija un canal manual en `config.h`.
 5. Los callbacks de ESP-NOW solo validan y copian información a una cola. No deben realizar HTTP, serial, archivos, demoras ni cálculos pesados.
 6. Las colas son acotadas; los descartes y errores de entrega se informan por serial para no ocultar pérdida de datos.
 7. Se validan firma, versión, tipo y tamaño antes de interpretar bytes recibidos como paquetes.

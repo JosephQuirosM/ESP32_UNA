@@ -6,7 +6,7 @@ Los tres dispositivos usan el LED RGB WS2812B de la IdeaBoard en GPIO 2. «Inter
 
 | Color / patrón | Cuándo aparece | Significado |
 |---|---|---|
-| Amarillo intermitente cada 400 ms | Durante la inicialización y mientras espera el ID del Gateway con tarjeta presente. | Sensor de tarjeta habilitado y tarjeta detectada, pero aún no puede emitir beacons sin ID. En juegos sin sensor también se usa durante el inicio. |
+| Amarillo intermitente cada 400 ms | Durante la inicialización, búsqueda de canal y espera del ID del Gateway con tarjeta presente. | Sensor de tarjeta habilitado y tarjeta detectada, pero aún no puede emitir beacons sin ID. En juegos sin sensor también se usa durante el inicio. |
 | Rojo intermitente cada 500 ms | El sensor habilitado confirma ausencia de tarjeta al arrancar o transcurren 2 s continuos sin ella durante el juego. | Beacons pausados por falta de tarjeta; el registro del nodo continúa. Este rojo queda reservado para esa condición. |
 | Verde fijo | Tarjeta presente (o sensor deshabilitado) e ID asignado. | Jugador habilitado para emitir beacons. |
 | Latido verde sincronizado con cada beacon | `esp_now_send()` acepta localmente un beacon broadcast. El latido dura el intervalo hasta el siguiente beacon: 500 ms más el intervalo variable configurado. | Actividad normal de envío; no confirma recepción en las torres. Si cambia el intervalo de beacon, cambia el del latido. |
@@ -22,7 +22,7 @@ El Light Blocking entrega solamente HIGH o LOW. Con la entrada `INPUT_PULLUP`, u
 | Color / patrón | Cuándo aparece | Significado |
 |---|---|---|
 | Amarillo intermitente cada 400 ms | Al arrancar. | Inicialización de la radio. |
-| Azul intermitente cada 500 ms | Radio lista, antes de recibir un ID y registrar el Gateway como destino unicast. | Esperando asignación. |
+| Azul intermitente cada 500 ms | Radio lista, buscando al Gateway o esperando una nueva asignación después de perderlo. | Búsqueda de canal o registro en curso. |
 | Verde fijo | ID asignado y Gateway registrado como destino unicast. | Torre lista para escuchar y reenviar registros RSSI. |
 | Latido verde de 160 ms | `esp_now_send()` aceptó localmente un registro RSSI unicast. | Actividad normal de reenvío; comprobar `tx_confirmadas` en serial para conocer el resultado de la transmisión. |
 | Rojo intermitente cada 200 ms | Falló la inicialización de la radio o el registro de sus callbacks. | Error de radio. |
@@ -32,8 +32,8 @@ El Light Blocking entrega solamente HIGH o LOW. Con la entrada `INPUT_PULLUP`, u
 | Color / patrón | Cuándo aparece | Significado |
 |---|---|---|
 | Amarillo intermitente cada 400 ms | Al arrancar, mientras conecta con el hotspot de la PC o tras perder Wi-Fi. | Conexión o reconexión en curso. |
-| Verde fijo | Se conectó al Wi-Fi en el canal configurado e inició ESP-NOW y UDP. | Gateway listo para registrar nodos y anunciarse a la PC. |
+| Verde fijo | Se conectó al Wi-Fi, adoptó su canal e inició ESP-NOW y UDP. | Gateway listo para registrar nodos y anunciarse a la PC. |
 | Latido verde de 250 ms | Procesó una orden UDP válida de control de captura de la PC o recibió respuesta HTTP 2xx para un lote de registros. | Actividad normal de control o entrega; una orden puede activar o desactivar la captura. |
-| Rojo intermitente cada 200 ms | Falló el modo Wi-Fi, ESP-NOW o UDP, o el canal del hotspot no coincide con el configurado. | Error de inicialización o canal. |
+| Rojo intermitente cada 200 ms | Falló el modo Wi-Fi, ESP-NOW o UDP. | Error de inicialización; ESP-NOW y UDP se reintentan. |
 
 El Gateway permanece verde después de que venza la autorización o el destino de la PC mientras siga conectado; ese vencimiento no cambia el LED. Compruebe `captura=`, `destino_pc=`, los contadores y los mensajes de control en serial o en la web. Véase [descubrimiento_gateway.md](descubrimiento_gateway.md).

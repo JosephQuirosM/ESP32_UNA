@@ -1,0 +1,38 @@
+Herramienta: generación de imágenes integrada (image_gen).
+
+Use case: infographic-diagram.
+Crear una infografía técnica ilustrada, profesional y muy legible, en español, formato horizontal 16:9, alta resolución, para la documentación de un proyecto ESP32. Título: "Pipeline de captura de datos". Subtítulo: "Del beacon del jugador al archivo CSV en la PC". Fondo blanco, tipografía sans serif nítida, bloques con borde suave, azul oscuro y verde/teal para los flujos; contraste alto, espacio en blanco. Iconos de placas ESP32, jugador con dispositivo, cuatro antenas/torres y PC. No mostrar código fuente. No marcas de agua.
+
+Composición: CUATRO etapas grandes numeradas, ordenadas de izquierda a derecha, conectadas con flechas inequívocas. Mostrar exactamente cuatro torres dentro de la etapa 2, no una sola torre. El flujo se ramifica del jugador a las cuatro torres y converge en Gateway. Respetar todos los siguientes textos, con palabras cortas y legibles.
+
+Etapa 1, encabezado "1 · JUGADOR ESP32".
+Icono jugador y placa. Texto principal "Emite beacons".
+Ficha de datos pequeña con "ID y sesión del jugador", "Secuencia y tiempo local", "Estado de movimiento".
+Flechas de salida a las cuatro torres etiquetadas "ESP-NOW v4 · broadcast".
+
+Etapa 2, encabezado "2 · CUATRO TORRES".
+Cuatro iconos claramente identificados T1 T2 T3 T4.
+Texto principal "Cada torre mide RSSI".
+Ficha "Conserva jugador, sesión, secuencia y movimiento", "Añade RSSI, ID y sesión de torre, secuencia de envío y hora local".
+Mini flujo "Cola local → envío escalonado".
+Flecha convergente hacia Gateway etiquetada "ESP-NOW v4 · unicast".
+No afirmar que el jugador envía RSSI: es cada torre la que lo mide.
+
+Etapa 3, encabezado "3 · GATEWAY".
+Icono placa gateway. Texto "Valida y completa el registro".
+Ficha breve "MAC de la torre + sesión del Gateway + tiempo de recepción".
+Debajo, ilustración clara de registros individuales entrando en una cola FIFO, luego agrupándose en lote. Flujo exacto: "Cola de registros → Lote JSON".
+Etiqueta "Hasta 8 registros por lote".
+Nota pequeña "Reintenta si falla el envío".
+Flecha hacia PC etiquetada "Wi-Fi · HTTP POST".
+
+Etapa 4, encabezado "4 · PC / RECEPTOR PYTHON".
+Icono PC.
+Mini flujo vertical "Valida captura y registros" → "Cola de escritura" → "Archivo CSV".
+Icono de archivo CSV prominente y nota "Añade fecha y hora UTC de la PC".
+Etiqueta junto al resultado: "Una fila por lectura de una torre".
+
+Debajo de las cuatro etapas colocar una franja de control separada visualmente. Desde una pequeña caja bajo PC "Frontend → Backend" una flecha discontinua de derecha a izquierda llega sólo al Gateway, etiquetada "Activar / detener captura · UDP + confirmación".
+Dentro de esta franja incluir dos pequeños estados junto al Gateway: "Captura activa: admite y envía lecturas" en verde y "Sin captura: descarta lecturas y vacía pendientes" en gris.
+Texto de pie discreto: "El Gateway sigue atendiendo el registro de nodos aunque no haya captura.".
+No dibujar órdenes de captura desde PC hacia torres o jugadores. No agregar nubes, Internet ni conexión USB para el flujo de datos. No incluir aprendizaje automático, modelos o mapas: esta imagen termina en el CSV. Priorizar legibilidad y una jerarquía visual clara; los cuatro bloques deben encajar con márgenes amplios.

@@ -5,6 +5,7 @@
 #include "../Comun/LedEstado.h"
 #include "../Comun/Paquete.h"
 #include "../Comun/RadioComun.h"
+#include "../Comun/EnlaceGateway.h"
 
 struct EventoTorre {
   PaqueteBeaconJugador beacon;
@@ -12,13 +13,9 @@ struct EventoTorre {
   uint32_t tiempo_recepcion_ms;
 };
 
-struct AsignacionPendiente {
-  PaqueteAsignacionId paquete;
-  uint8_t mac_gateway[TAMANO_MAC];
-};
-
 ControlLed led(PIN_LED_RGB);
-uint8_t idTorre = ID_TORRE_RESPALDO;
+EnlaceGateway enlaceGateway(RolNodo::TORRE, ESCUCHA_CANAL_MS, VIGENCIA_ANUNCIO_GATEWAY_MS);
+uint8_t idTorre = ID_SIN_ASIGNAR;
 uint8_t macTorre[6] = {};
 bool radioLista = false;
 uint32_t ultimoRegistroMs = 0;
@@ -44,14 +41,15 @@ EventoTorre cola[CAPACIDAD_COLA_TORRE];
 uint8_t indiceLectura = 0;
 uint8_t indiceEscritura = 0;
 uint32_t descartesCola = 0;
+uint32_t descartesSinGateway = 0;
+uint32_t purgadosReconexiones = 0;
+bool admitirBeacons = false;
 portMUX_TYPE mutexCola = portMUX_INITIALIZER_UNLOCKED;
-
-AsignacionPendiente asignacionPendiente = {};
-volatile bool hayAsignacionPendiente = false;
-portMUX_TYPE mutexAsignacion = portMUX_INITIALIZER_UNLOCKED;
 
 // Copia el beacon y su RSSI a una cola; el reenvío se hace posteriormente en loop.
 void alRecibir(const esp_now_recv_info_t *info, const uint8_t *datos, int longitud) {
+  if (!info || !info->rx_ctrl) return;
+  if (enlaceGateway.recibir(info, datos, longitud)) return;
   if (esPaqueteValido(datos, longitud, TipoPaquete::BEACON_JUGADOR,
                       sizeof(PaqueteBeaconJugador))) {
     PaqueteBeaconJugador beacon = {};
@@ -60,6 +58,11 @@ void alRecibir(const esp_now_recv_info_t *info, const uint8_t *datos, int longit
 
     portENTER_CRITICAL(&mutexCola);
     ++beaconsRecibidos;
+    if (!admitirBeacons) {
+      ++descartesSinGateway;
+      portEXIT_CRITICAL(&mutexCola);
+      return;
+    }
     const uint8_t siguiente = (indiceEscritura + 1) % CAPACIDAD_COLA_TORRE;
     if (siguiente == indiceLectura) {
       ++descartesCola;
@@ -74,18 +77,6 @@ void alRecibir(const esp_now_recv_info_t *info, const uint8_t *datos, int longit
     return;
   }
 
-  if (esPaqueteValido(datos, longitud, TipoPaquete::ASIGNACION_ID,
-                      sizeof(PaqueteAsignacionId))) {
-    PaqueteAsignacionId paquete = {};
-    memcpy(&paquete, datos, sizeof(paquete));
-    if (paquete.rol == RolNodo::TORRE && macEsIgual(paquete.mac_destino, macTorre)) {
-      portENTER_CRITICAL(&mutexAsignacion);
-      asignacionPendiente.paquete = paquete;
-      copiarMac(asignacionPendiente.mac_gateway, info->src_addr);
-      hayAsignacionPendiente = true;
-      portEXIT_CRITICAL(&mutexAsignacion);
-    }
-  }
 }
 
 // Libera la radio tras cualquier envío y contabiliza solo la telemetría unicast.
@@ -184,7 +175,7 @@ void procesarReenvio(uint32_t ahora) {
 
 void enviarRegistroNodo() {
   PaqueteRegistroNodo paquete = {crearEncabezado(TipoPaquete::REGISTRO_NODO),
-                                 RolNodo::TORRE, idTorre, {0}};
+                                 RolNodo::TORRE, idTorre ? idTorre : ID_TORRE_RESPALDO, {0}};
   copiarMac(paquete.mac_nodo, macTorre);
   if (!intentarMarcarEnvioEnCurso()) return;
   if (!enviarBroadcast(&paquete, sizeof(paquete))) cancelarEnvioEnCurso();
@@ -198,9 +189,10 @@ void setup() {
   esp_read_mac(macTorre, ESP_MAC_WIFI_STA);
   sesionTorre = esp_random();
   if (sesionTorre == 0) sesionTorre = 1;
-  radioLista = prepararEstacionEnCanal(CANAL_ESPNOW) && inicializarEspNow(WIFI_IF_STA);
+  radioLista = enlaceGateway.iniciar(macTorre) && inicializarEspNow(WIFI_IF_STA);
   if (!radioLista || esp_now_register_recv_cb(alRecibir) != ESP_OK ||
       esp_now_register_send_cb(alEnviar) != ESP_OK) {
+    radioLista = false;
     led.intermitente(ROJO, 200);
     return;
   }
@@ -212,26 +204,43 @@ void loop() {
   led.actualizar();
   if (!radioLista) return;
   const uint32_t ahora = millis();
-  if (hayAsignacionPendiente) {
-    AsignacionPendiente asignacion = {};
-    portENTER_CRITICAL(&mutexAsignacion);
-    asignacion = asignacionPendiente;
-    hayAsignacionPendiente = false;
-    portEXIT_CRITICAL(&mutexAsignacion);
-    if (asignacion.paquete.id_asignado != ID_SIN_ASIGNAR &&
-        registrarPeerUnicast(asignacion.mac_gateway, WIFI_IF_STA)) {
-      idTorre = asignacion.paquete.id_asignado;
-      copiarMac(macGateway, asignacion.mac_gateway);
+  const auto cambioCanal = enlaceGateway.actualizar(ahora, hayEnvioActivo());
+  if (cambioCanal != EstadoCanal::NINGUNO) {
+    // Comparte bloqueo con recepción: no deja acumular lecturas durante búsqueda.
+    portENTER_CRITICAL(&mutexCola);
+    admitirBeacons = false;
+    purgadosReconexiones += (indiceEscritura + CAPACIDAD_COLA_TORRE - indiceLectura) % CAPACIDAD_COLA_TORRE;
+    indiceLectura = indiceEscritura = 0;
+    portEXIT_CRITICAL(&mutexCola);
+    if (hayRegistroPendiente) ++purgadosReconexiones;
+    hayRegistroPendiente = false;
+    portENTER_CRITICAL(&mutexEnvio);
+    peerGatewayListo = false;
+    portEXIT_CRITICAL(&mutexEnvio);
+    idTorre = ID_SIN_ASIGNAR;
+    ultimoRegistroMs = ahora - INTERVALO_REGISTRO_MS + esp_random() % 200;
+    led.intermitente(AZUL, 500);
+  }
+  const uint8_t asignado = enlaceGateway.obtenerAsignacion();
+  if (asignado != ID_SIN_ASIGNAR) {
+    if (registrarPeerUnicast(enlaceGateway.mac(), WIFI_IF_STA)) {
+      idTorre = asignado;
+      portENTER_CRITICAL(&mutexEnvio);
+      copiarMac(macGateway, enlaceGateway.mac());
       peerGatewayListo = true;
+      portEXIT_CRITICAL(&mutexEnvio);
+      portENTER_CRITICAL(&mutexCola);
+      admitirBeacons = true;
+      portEXIT_CRITICAL(&mutexCola);
       led.fijo(VERDE);
-      Serial.printf("ID torre asignado: %u; Gateway %s registrado unicast\n", idTorre,
-                    macATexto(macGateway).c_str());
+      Serial.printf("ID torre asignado: %u; Gateway %s registrado unicast; canal=%u\n",
+                    idTorre, macATexto(macGateway).c_str(), enlaceGateway.canal());
     } else {
-      peerGatewayListo = false;
       Serial.println("No fue posible registrar el Gateway como peer unicast");
     }
   }
-  if (ahora - ultimoRegistroMs >= INTERVALO_REGISTRO_MS) {
+  if (enlaceGateway.encontrado() && !hayEnvioActivo() &&
+      ahora - ultimoRegistroMs >= INTERVALO_REGISTRO_MS) {
     ultimoRegistroMs = ahora;
     enviarRegistroNodo();
   }
@@ -241,12 +250,14 @@ void loop() {
     uint32_t beacons = 0;
     uint32_t encolados = 0;
     uint32_t descartes = 0;
+    uint32_t sinGateway = 0;
     uint32_t confirmadas = 0;
     uint32_t fallidas = 0;
     portENTER_CRITICAL(&mutexCola);
     beacons = beaconsRecibidos;
     encolados = registrosEncolados;
     descartes = descartesCola;
+    sinGateway = descartesSinGateway;
     portEXIT_CRITICAL(&mutexCola);
     portENTER_CRITICAL(&mutexEnvio);
     confirmadas = transmisionesConfirmadas;
@@ -255,7 +266,7 @@ void loop() {
     Serial.printf(
         "Torre: id=%u sesion=%lu beacons=%lu encolados=%lu descartes_cola=%lu "
         "tx_intentos=%lu tx_confirmadas=%lu tx_fallidas=%lu fallos_inicio=%lu "
-        "gateway_unicast=%s\n",
+        "gateway_unicast=%s canal=%u descartes_sin_gateway=%lu purgados_reconexion=%lu\n",
         idTorre, static_cast<unsigned long>(sesionTorre),
         static_cast<unsigned long>(beacons),
         static_cast<unsigned long>(encolados),
@@ -263,6 +274,7 @@ void loop() {
         static_cast<unsigned long>(transmisionesIntentadas),
         static_cast<unsigned long>(confirmadas),
         static_cast<unsigned long>(fallidas),
-        static_cast<unsigned long>(fallosInicioEnvio), peerGatewayListo ? "si" : "no");
+        static_cast<unsigned long>(fallosInicioEnvio), peerGatewayListo ? "si" : "no", enlaceGateway.canal(),
+        static_cast<unsigned long>(sinGateway), static_cast<unsigned long>(purgadosReconexiones));
   }
 }

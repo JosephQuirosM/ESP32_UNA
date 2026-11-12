@@ -43,6 +43,7 @@ export interface Configuracion {
   zonaHoraria: string;
 }
 interface EventoPython {
+  redReceptor?: Captura["redReceptor"];
   estado: Captura["estado"];
   inicioUtc?: string;
   finPrevistoUtc?: string;

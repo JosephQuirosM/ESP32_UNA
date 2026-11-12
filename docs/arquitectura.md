@@ -22,7 +22,7 @@ Vectores --> entrenamiento KNN / Random Forest --> modelo .joblib + JSON
 CSV crudos o preparados + modelo --> predicción y suavizado --> PNG + CSV + JSON
 ```
 
-El hotspot lo activa el usuario en el sistema operativo de la PC. El backend y el Gateway no crean la red. Todos los ESP32 y el hotspot deben usar el mismo canal (6 por defecto). Jugador y torres usan Wi-Fi en modo estación sin asociarse al hotspot; fijan el canal para ESP-NOW. El Gateway sí se asocia, desactiva el ahorro de energía Wi-Fi y comprueba el canal efectivo.
+El hotspot lo activa el usuario en el sistema operativo de la PC. El backend y el Gateway no crean la red. El Gateway se asocia al hotspot sin fijar canal, desactiva el ahorro de energía Wi-Fi y anuncia su canal efectivo por ESP-NOW cada 250 ms. Jugador y torres usan Wi-Fi en modo estación sin asociarse al hotspot: recorren los canales permitidos, se fijan al encontrar el Gateway y vuelven a buscarlo tras 5 s sin anuncios. El registro y los envíos se reanudan en el canal encontrado; véase [canales automáticos](canales_automaticos.md).
 
 | Enlace | Transporte | Función |
 |---|---|---|
@@ -54,7 +54,7 @@ Todos los sketches apagan al arrancar los GPIO 12, 13, 14 y 15 del driver de mot
 
 El Gateway reintenta Wi-Fi cada 10 s y calcula el broadcast DHCP. El backend posee UDP 4210 y envía `HEATMAP_PC_V3 SESION REVISION CAPTURA_ID PUERTO`; el Gateway confirma con `HEATMAP_ACK_V3` y los mismos campos. Puerto 0 e ID `-` desactivan. Cada captura nueva limpia cola/lote/reintentos antes de habilitar admisión; renovar la misma orden sólo prolonga el plazo. Las órdenes antiguas y ACK de otra captura se ignoran.
 
-Los cambios se envían inmediatamente y se reintentan cada 250 ms; tras el ACK se renuevan cada 2 s. La autorización vence en 12 s. Desconexión Wi-Fi, canal incompatible, desactivación o vencimiento cierran admisión y limpian pendientes. El panel considera desconectado al Gateway tras 10 s sin anuncios. El firmware requiere control V3 y capacidad `controlCaptura: 1`; el CLI también usa este contrato. No basta conectar ambos equipos a un router externo: las órdenes deben venir de la PC que es la puerta de enlace DHCP. Véase [descubrimiento_gateway.md](descubrimiento_gateway.md).
+Los cambios se envían inmediatamente y se reintentan cada 250 ms; tras el ACK se renuevan cada 2 s. La autorización vence en 12 s. Desconexión Wi-Fi, desactivación o vencimiento cierran admisión y limpian pendientes. El backend mantiene la captura abierta durante una interrupción y, al reconectar, autoriza el mismo UUID con una revisión nueva si fue cerrada. Python reabre HTTP en la IP del hotspot sin cerrar el CSV. El panel considera desconectado al Gateway tras 10 s sin anuncios. El firmware requiere control V3 y capacidad `controlCaptura: 1`; el CLI también usa este contrato. No basta conectar ambos equipos a un router externo: las órdenes deben venir de la PC que es la puerta de enlace DHCP. Véase [descubrimiento_gateway.md](descubrimiento_gateway.md).
 
 El Gateway conserva el lote HTTP pendiente hasta recibir cualquier 2xx o acumular cinco intentos fallidos, con espera exponencial entre intentos. Los tiempos máximos configurados de conexión y lectura HTTP son 400 ms; el tope configurado de espera entre reintentos es 8 s. Al agotar los intentos descarta el lote y cuenta la pérdida. No hay almacenamiento persistente en el Gateway.
 

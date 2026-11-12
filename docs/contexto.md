@@ -4,7 +4,7 @@ El sistema estima zonas aproximadas mediante fingerprinting RSSI y genera mapas 
 
 ## Flujo actual
 
-1. La PC ofrece un hotspot de 2.4 GHz, en el mismo canal que los jugadores, las cuatro torres y el Gateway (canal 6 por defecto).
+1. La PC ofrece un hotspot de 2.4 GHz. El Gateway adopta su canal; jugadores y torres lo descubren por anuncios ESP-NOW y vuelven a buscarlo si desaparece. Véase [canales automáticos](canales_automaticos.md).
 2. El Gateway se conecta como estación por DHCP y asigna IDs dinámicos por MAC al jugador y las torres mediante control ESP-NOW broadcast.
 3. El jugador difunde beacons; las cuatro torres miden RSSI y envían registros ESP-NOW unicast al Gateway.
 4. El Gateway anuncia su presencia por UDP broadcast 4210. Express envía control V3 por unicast con sesión, revisión, ID y puerto; recibe el ACK de limpieza/apertura antes de iniciar el reloj. Puerto 0 desactiva y limpia el Gateway.

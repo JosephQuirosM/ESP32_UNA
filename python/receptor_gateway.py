@@ -245,6 +245,75 @@ class ManejadorRegistros(BaseHTTPRequestHandler):
         print(f"HTTP {self.client_address[0]} - {formato % argumentos}", file=sys.stderr, flush=True)
 
 
+class ReceptorCaptura:
+    """Reabre HTTP en el hotspot sin cerrar el escritor ni cambiar de captura."""
+
+    def __init__(self, escritor: EscritorCsv, captura_id: str, puerto: int):
+        self.escritor, self.captura_id, self.puerto = escritor, captura_id, puerto
+        self.servidor: ServidorRegistros | None = None
+        self._hilo: threading.Thread | None = None
+        self._mutex = threading.RLock()
+        self._grabando = False
+        self._cerrado = False
+        self.host: str | None = None
+        self.error: str | None = None
+
+    def _cerrar_listener(self):
+        if self.servidor:
+            with self.servidor.mutex_admision:
+                self.servidor.deteniendo.set()
+                self.servidor.admitiendo.clear()
+            self.servidor.shutdown()
+            self.servidor.server_close()
+            if self._hilo:
+                self._hilo.join()
+            self.servidor = None
+            self._hilo = None
+        self.host = None
+
+    def cambiar_red(self, host: str | None) -> bool:
+        """El host procede de la detección del hotspot, nunca de un cliente HTTP."""
+        with self._mutex:
+            if self._cerrado:
+                return False
+            if host == self.host and self.servidor:
+                return True
+            self._cerrar_listener()
+            if not host:
+                self.error = "Hotspot no disponible; conservando captura y esperando reconexión"
+                return False
+            if host in ("0.0.0.0", "::"):
+                raise ValueError("El receptor no puede escuchar en todas las interfaces")
+            try:
+                servidor = ServidorRegistros((host, self.puerto), self.escritor, self.captura_id)
+            except OSError as error:
+                self.error = f"Esperando receptor HTTP en {host}: {error}"
+                return False
+            self.servidor, self.host, self.error = servidor, host, None
+            if self._grabando:
+                servidor.admitiendo.set()
+            self._hilo = threading.Thread(target=lambda: servidor.serve_forever(poll_interval=0.1),
+                                          name="servidor-http", daemon=True)
+            self._hilo.start()
+            return True
+
+    def iniciar_grabacion(self):
+        with self._mutex:
+            self._grabando = True
+            if self.servidor:
+                with self.servidor.mutex_admision:
+                    self.servidor.admitiendo.set()
+
+    def estado_red(self) -> dict:
+        with self._mutex:
+            return {"disponible": self.servidor is not None, "host": self.host, "error": self.error}
+
+    def cerrar(self):
+        with self._mutex:
+            self._cerrado = True
+            self._cerrar_listener()
+
+
 def argumentos() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Registra lecturas RSSI recibidas desde el Gateway.")
     parser.add_argument("--captura-id", default=str(uuid.uuid4()), help="UUID de correlación HTTP de esta captura")
@@ -293,15 +362,7 @@ def main() -> int:
     escritor = EscritorCsv(args.archivo, nuevo=args.nuevo, cuadricula=validar_cuadricula(args.cuadricula_json) if args.cuadricula_json else None)
     detener = threading.Event()
     iniciar = threading.Event()
-    if args.host not in ("127.0.0.1", "::1"):
-        def vigilar_red() -> None:
-            while not detener.wait(3):
-                actual = detectar_hotspot()
-                if not actual or actual["ip"] != args.host:
-                    detener.set()
-                    return
-
-        threading.Thread(target=vigilar_red, name="vigilar-red", daemon=True).start()
+    receptor = ReceptorCaptura(escritor, args.captura_id, args.puerto_http)
     motivo = "detenida"
     estado: dict[str, Any] = {
         "estado": "iniciando", "pid": os.getpid(), "filasEscritas": 0,
@@ -312,7 +373,8 @@ def main() -> int:
         """Guarda un evento atómico y lo publica para el backend cuando esté conectado."""
         estado.update(datos)
         estado.update(estado=nuevo_estado, filasEscritas=escritor.filas_escritas,
-                      ultimaRecepcionUtc=escritor.ultima_recepcion_utc)
+                      ultimaRecepcionUtc=escritor.ultima_recepcion_utc,
+                      redReceptor=receptor.estado_red())
         texto = json.dumps(estado, ensure_ascii=False)
         if args.estado_json:
             args.estado_json.parent.mkdir(parents=True, exist_ok=True)
@@ -340,15 +402,21 @@ def main() -> int:
 
     signal.signal(signal.SIGINT, solicitar_cierre)
     signal.signal(signal.SIGTERM, solicitar_cierre)
-    servidor: ServidorRegistros | None = None
     anunciador: ControlGatewayUdp | None = None
-    hilo_servidor: threading.Thread | None = None
     fallo: Exception | None = None
     try:
-        servidor = ServidorRegistros((args.host, args.puerto_http), escritor, args.captura_id)
+        if not receptor.cambiar_red(args.host):
+            raise RuntimeError(receptor.error)
         escritor.iniciar()
-        hilo_servidor = threading.Thread(target=servidor.serve_forever, name="servidor-http", daemon=True)
-        hilo_servidor.start()
+        if args.host not in ("127.0.0.1", "::1"):
+            def vigilar_red() -> None:
+                while not detener.wait(3):
+                    actual = detectar_hotspot()
+                    if detener.is_set():
+                        return
+                    receptor.cambiar_red(actual["ip"] if actual else None)
+
+            threading.Thread(target=vigilar_red, name="vigilar-red", daemon=True).start()
         publicar("iniciando", preparado=True, inicioUtc=None, finPrevistoUtc=None)
         if args.control_json:
             threading.Thread(target=leer_control, name="control-entrada", daemon=True).start()
@@ -377,13 +445,13 @@ def main() -> int:
             inicio = datetime.now(timezone.utc)
             limite = time.monotonic() + args.duracion if args.duracion is not None else None
             fin_previsto = inicio + timedelta(seconds=args.duracion) if args.duracion is not None else None
-            with servidor.mutex_admision:
-                servidor.admitiendo.set()
+            receptor.iniciar_grabacion()
             publicar("grabando", inicioUtc=inicio.isoformat(),
                      finPrevistoUtc=fin_previsto.isoformat() if fin_previsto else None)
             if not args.control_json:
                 print(f"Grabando HTTP en {args.host}:{args.puerto_http}; CSV: {args.archivo}", flush=True)
         ultimo_conteo = 0
+        ultima_red = receptor.estado_red()
         while not detener.wait(0.1):
             escritor.comprobar_error()
             if anunciador and anunciador.fallo: raise RuntimeError(anunciador.fallo)
@@ -393,16 +461,19 @@ def main() -> int:
             if limite is not None and time.monotonic() >= limite:
                 motivo = "completada"
                 break
-            if escritor.filas_escritas != ultimo_conteo:
+            red_actual = receptor.estado_red()
+            if escritor.filas_escritas != ultimo_conteo or red_actual != ultima_red:
                 ultimo_conteo = escritor.filas_escritas
+                ultima_red = red_actual
                 publicar("grabando")
     except Exception as error:
         fallo = error
     finally:
-        if servidor:
-            with servidor.mutex_admision:
-                servidor.deteniendo.set()
-                servidor.admitiendo.clear()
+        detener.set()
+        try:
+            receptor.cerrar()
+        except Exception as error:
+            fallo = fallo or error
         try:
             publicar("cerrando")
         except Exception as error:
@@ -410,8 +481,6 @@ def main() -> int:
         # Cada recurso se cierra aunque falle el cierre de otro.
         for cerrar in [
             anunciador.cerrar if anunciador else None,
-            servidor.shutdown if servidor and hilo_servidor else None,
-            servidor.server_close if servidor else None,
             escritor.cerrar,
         ]:
             if cerrar:

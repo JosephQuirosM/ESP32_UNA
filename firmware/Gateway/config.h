@@ -1,19 +1,15 @@
 #pragma once
 
 constexpr uint8_t PIN_LED_RGB = 2;
-// El hotspot de la PC debe usar 2.4 GHz y este mismo canal.
-// CANAL_ESPNOW también debe coincidir en Torre/config.h y Jugador/config.h.
-constexpr uint8_t CANAL_ESPNOW = 6;
-// Credenciales del hotspot creado por la PC; las locales no se publican en Git.
-#if __has_include("config.local.h")
-#include "config.local.h"
-#else
-constexpr char NOMBRE_RED[] = "CONFIGURA_TU_HOTSPOT";
-constexpr char CLAVE_RED[] = "CONFIGURA_TU_CLAVE";
-#endif
+// El hotspot debe usar 2.4 GHz. El canal se obtiene automáticamente al conectarse.
+// Credenciales del hotspot creado por la PC.
+constexpr char NOMBRE_RED[] = "GF63-Thin-10SC";
+constexpr char CLAVE_RED[] = "9876543210";
 constexpr uint32_t INTERVALO_RECONEXION_WIFI_MS = 10000;
 constexpr uint16_t PUERTO_DESCUBRIMIENTO_UDP = 4210;
-// Anuncios ESP-NOW para los nodos y UDP para el backend de la PC.
+// Anuncios de radio frecuentes para encontrar el Gateway al recorrer canales.
+constexpr uint32_t INTERVALO_ANUNCIO_RADIO_MS = 250;
+// Descubrimiento UDP para el backend de la PC.
 constexpr uint32_t INTERVALO_ANUNCIO_GATEWAY_MS = 2000;
 constexpr uint32_t VIGENCIA_DESTINO_PC_MS = 12000;
 constexpr uint8_t CAPACIDAD_COLA_CONTROL = 24;

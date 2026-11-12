@@ -8,19 +8,20 @@
 #include "../Comun/Paquete.h"
 #include "../Comun/RadioComun.h"
 #include "SensoresJugador.h"
+#include "../Comun/EnlaceGateway.h"
 
 ControlLed led(PIN_LED_RGB);
 constexpr ColorLed ERROR_RADIO_JUGADOR = {180, 0, 255};
-uint8_t idJugador = ID_JUGADOR_RESPALDO;
+EnlaceGateway enlaceGateway(RolNodo::JUGADOR, ESCUCHA_CANAL_MS, VIGENCIA_ANUNCIO_GATEWAY_MS);
+uint8_t idJugador = ID_SIN_ASIGNAR;
 uint32_t secuencia = 0;
 uint32_t sesionJugador = 0;
 uint32_t proximoBeaconMs = 0;
 uint32_t ultimoRegistroMs = 0;
 bool radioLista = false;
 uint8_t macJugador[6] = {};
-PaqueteAsignacionId asignacionPendiente = {};
-volatile bool hayAsignacionPendiente = false;
-portMUX_TYPE mutexAsignacion = portMUX_INITIALIZER_UNLOCKED;
+bool envioEnCurso = false;
+portMUX_TYPE mutexEnvio = portMUX_INITIALIZER_UNLOCKED;
 bool mpuDisponible = false;
 bool mpuDetectadoAlgunaVez = false;
 bool enMovimiento = false;
@@ -31,6 +32,10 @@ uint32_t ultimaImpresionMpuMs = 0;
 float variacionFiltrada = 0.0f;
 float aceleracionAnterior[3] = {};
 bool aceleracionAnteriorLista = false;
+bool buzzerDisponible = false;
+bool avisoBuzzerActivo = false;
+uint32_t inicioAvisoBuzzerMs = 0;
+int faseBuzzer = -1;
 int ultimoNivelTarjeta = -1;
 uint32_t ultimoDiagnosticoTarjetaMs = 0;
 int nivelTarjetaCandidato = -1;
@@ -54,6 +59,42 @@ bool iniciarMpu() {
   if (Wire.endTransmission() != 0) return false;
   uint8_t aceleracion[6];
   return leerRegistroMpu(0x3B, aceleracion, sizeof(aceleracion));
+}
+
+// Emite tres tonos durante una ventana de cuatro segundos sin detener el loop.
+void actualizarBuzzer(uint32_t ahora) {
+  if (!avisoBuzzerActivo) return;
+  const uint32_t transcurrido = ahora - inicioAvisoBuzzerMs;
+  if (transcurrido >= DURACION_AVISO_BUZZER_MS) {
+    ledcWriteTone(PIN_BUZZER, 0);
+    digitalWrite(PIN_BUZZER, LOW);
+    avisoBuzzerActivo = false;
+    faseBuzzer = -1;
+    return;
+  }
+
+  // Tres pitidos de 800 ms separados por pausas de 400 ms; luego queda
+  // silencioso hasta completar los cuatro segundos del aviso.
+  const bool tono = transcurrido < 800 ||
+      (transcurrido >= 1200 && transcurrido < 2000) ||
+      (transcurrido >= 2400 && transcurrido < 3200);
+  const int nuevaFase = tono ? 1 : 0;
+  if (nuevaFase == faseBuzzer) return;
+  faseBuzzer = nuevaFase;
+  if (tono) ledcWriteTone(PIN_BUZZER, FRECUENCIA_BUZZER_HZ);
+  else {
+    ledcWriteTone(PIN_BUZZER, 0);
+    digitalWrite(PIN_BUZZER, LOW);
+  }
+}
+
+// Inicia el aviso una sola vez cuando vence el plazo de ausencia de tarjeta.
+void iniciarAvisoBuzzer(uint32_t ahora) {
+  if (!buzzerDisponible) return;
+  inicioAvisoBuzzerMs = ahora;
+  avisoBuzzerActivo = true;
+  faseBuzzer = -1;
+  actualizarBuzzer(ahora);
 }
 
 void actualizarTarjeta(uint32_t ahora) {
@@ -90,6 +131,7 @@ void actualizarTarjeta(uint32_t ahora) {
   }
   if (cambio == CambioTarjeta::PAUSAR) {
     Serial.println("Tarjeta ausente: beacons pausados; jugador sigue registrado");
+    iniciarAvisoBuzzer(ahora);
   }
 }
 
@@ -161,7 +203,7 @@ void actualizarMpu(uint32_t ahora) {
 bool enviarBeacon() {
   PaqueteBeaconJugador paquete = {crearEncabezado(TipoPaquete::BEACON_JUGADOR),
                                   idJugador, sesionJugador, ++secuencia, millis(), static_cast<uint8_t>(mpuDisponible ? (enMovimiento ? 2 : 1) : 0)};
-  return enviarBroadcast(&paquete, sizeof(paquete));
+  return enviarPaqueteJugador(&paquete, sizeof(paquete));
 }
 
 uint32_t programarProximoBeacon(uint32_t ahora) {
@@ -171,26 +213,45 @@ uint32_t programarProximoBeacon(uint32_t ahora) {
   return intervalo;
 }
 
+// El callback conserva sólo anuncios y asignaciones válidos para este nodo.
 void alRecibir(const esp_now_recv_info_t *info, const uint8_t *datos, int longitud) {
-  if (!esPaqueteValido(datos, longitud, TipoPaquete::ASIGNACION_ID,
-                        sizeof(PaqueteAsignacionId))) {
-    return;
+  enlaceGateway.recibir(info, datos, longitud);
+}
+
+void alEnviar(const esp_now_send_info_t *, esp_now_send_status_t) {
+  portENTER_CRITICAL(&mutexEnvio);
+  envioEnCurso = false;
+  portEXIT_CRITICAL(&mutexEnvio);
+}
+
+bool hayEnvioActivo() {
+  portENTER_CRITICAL(&mutexEnvio);
+  const bool activo = envioEnCurso;
+  portEXIT_CRITICAL(&mutexEnvio);
+  return activo;
+}
+
+// Serializa beacons y registro para no cambiar de canal durante un envío.
+bool enviarPaqueteJugador(const void *paquete, size_t longitud) {
+  portENTER_CRITICAL(&mutexEnvio);
+  if (envioEnCurso) {
+    portEXIT_CRITICAL(&mutexEnvio);
+    return false;
   }
-  PaqueteAsignacionId paquete = {};
-  memcpy(&paquete, datos, sizeof(paquete));
-  (void)info;
-  if (paquete.rol == RolNodo::JUGADOR &&
-      macEsIgual(paquete.mac_destino, macJugador)) {
-    portENTER_CRITICAL(&mutexAsignacion);
-    asignacionPendiente = paquete;
-    hayAsignacionPendiente = true;
-    portEXIT_CRITICAL(&mutexAsignacion);
-  }
+  envioEnCurso = true;
+  portEXIT_CRITICAL(&mutexEnvio);
+  if (enviarBroadcast(paquete, longitud)) return true;
+  alEnviar(nullptr, ESP_NOW_SEND_FAIL);
+  return false;
 }
 
 void setup() {
   Serial.begin(115200);
   apagarDriverMotores();
+  pinMode(PIN_BUZZER, OUTPUT);
+  digitalWrite(PIN_BUZZER, LOW);
+  buzzerDisponible = ledcAttach(PIN_BUZZER, FRECUENCIA_BUZZER_HZ, 8);
+  if (!buzzerDisponible) Serial.println("Buzzer: no se pudo iniciar; el jugador continuará normalmente");
   led.iniciar();
   led.intermitente(AMARILLO, 400);
   if (SENSOR_LIGHT_BLOCKING_PRESENTE) { pinMode(PIN_LIGHT_BLOCKING, INPUT_PULLUP); estadoTarjeta.transmitir=false; }
@@ -209,8 +270,10 @@ void setup() {
   esp_read_mac(macJugador, ESP_MAC_WIFI_STA);
   sesionJugador = esp_random();
   if (sesionJugador == 0) sesionJugador = 1;
-  radioLista = prepararEstacionEnCanal(CANAL_ESPNOW) && inicializarEspNow(WIFI_IF_STA);
-  if (!radioLista || esp_now_register_recv_cb(alRecibir) != ESP_OK) {
+  radioLista = enlaceGateway.iniciar(macJugador) && inicializarEspNow(WIFI_IF_STA);
+  if (!radioLista || esp_now_register_recv_cb(alRecibir) != ESP_OK ||
+      esp_now_register_send_cb(alEnviar) != ESP_OK) {
+    radioLista = false;
     led.intermitente(ERROR_RADIO_JUGADOR, 200);
     Serial.println("Error: radio ESP-NOW no disponible; no se pueden enviar beacons");
     return;
@@ -222,28 +285,33 @@ void loop() {
   led.actualizar();
   if (!radioLista) return;
   const uint32_t ahora = millis();
+  actualizarBuzzer(ahora);
   actualizarTarjeta(ahora);
   actualizarMpu(ahora);
-  if (hayAsignacionPendiente) {
-    uint8_t idAsignado = ID_SIN_ASIGNAR;
-    portENTER_CRITICAL(&mutexAsignacion);
-    idAsignado = asignacionPendiente.id_asignado;
-    hayAsignacionPendiente = false;
-    portEXIT_CRITICAL(&mutexAsignacion);
-    const bool asignacionNueva = idJugador != idAsignado;
-    idJugador = idAsignado;
-    Serial.printf("ID jugador asignado: %u\n", idJugador);
-    if (asignacionNueva) programarProximoBeacon(ahora);
+  const auto cambioCanal = enlaceGateway.actualizar(ahora, hayEnvioActivo());
+  if (cambioCanal != EstadoCanal::NINGUNO) {
+    idJugador = ID_SIN_ASIGNAR;
+    // Desfase corto para que los nodos encontrados juntos no se registren a la vez.
+    ultimoRegistroMs = ahora - INTERVALO_REGISTRO_MS + esp_random() % 200;
+  }
+  const uint8_t asignado = enlaceGateway.obtenerAsignacion();
+  if (asignado != ID_SIN_ASIGNAR) {
+    const bool nueva = idJugador != asignado;
+    idJugador = asignado;
+    Serial.printf("ID jugador asignado: %u; canal=%u\n", idJugador, enlaceGateway.canal());
+    if (nueva) programarProximoBeacon(ahora);
   }
   actualizarLedJugador();
-  if (ahora - ultimoRegistroMs >= INTERVALO_REGISTRO_MS) {
+  if (enlaceGateway.encontrado() && !hayEnvioActivo() &&
+      ahora - ultimoRegistroMs >= INTERVALO_REGISTRO_MS) {
     ultimoRegistroMs = ahora;
     PaqueteRegistroNodo paquete = {crearEncabezado(TipoPaquete::REGISTRO_NODO),
-                                   RolNodo::JUGADOR, idJugador, {0}};
+                                   RolNodo::JUGADOR, idJugador ? idJugador : ID_JUGADOR_RESPALDO, {0}};
     copiarMac(paquete.mac_nodo, macJugador);
-    enviarBroadcast(&paquete, sizeof(paquete));
+    enviarPaqueteJugador(&paquete, sizeof(paquete));
   }
-  if (estadoTarjeta.transmitir && idJugador != ID_SIN_ASIGNAR &&
+  if (enlaceGateway.encontrado() && !hayEnvioActivo() &&
+      estadoTarjeta.transmitir && idJugador != ID_SIN_ASIGNAR &&
       static_cast<int32_t>(ahora - proximoBeaconMs) >= 0) {
     const bool enviado = enviarBeacon();
     const uint32_t intervalo = programarProximoBeacon(ahora);

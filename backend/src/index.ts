@@ -58,9 +58,9 @@ function desconectar(motivo: string) {
   gestor.redLista = false;
   gestor.estadoRed = motivo;
   cerrarPublico();
-  const activa = gestor.actual();
-  if (activa) gestor.detener(activa.id);
-  gestor.gateway.desactivar();
+  // Se suspende la comunicación, conservando el proceso Python, UUID y CSV.
+  // El receptor cierra su listener por su propia vigilancia y lo reabre cuando
+  // se detecte otra vez el hotspot. La autorización se renueva al reconectar.
   gestor.gateway.cerrar();
   gestor.configuracion.host = "127.0.0.1";
 }
@@ -71,7 +71,7 @@ async function comprobarRed() {
     const estado = await detectarHotspot(gestor.configuracion.python, raiz);
     if (cerrando) return;
     if (!estado) {
-      if (publico || gestor.redLista || gestor.actual()) desconectar("No se detecta el hotspot. Acceso disponible sólo en esta PC.");
+      if (publico || gestor.redLista || gestor.actual()) desconectar("No se detecta el hotspot. La captura abierta espera la reconexión; acceso sólo en esta PC.");
       else gestor.estadoRed = "No se detecta el hotspot. Acceso disponible sólo en esta PC.";
       return;
     }

@@ -65,11 +65,14 @@ IPAddress ipPc;
 uint16_t puertoHttpPc = 0;
 uint32_t venceDestinoPcMs = 0;
 uint32_t ultimoAnuncioMs = 0;
+uint32_t ultimoAnuncioRadioMs = 0;
+uint32_t proximoInicioServiciosMs = 0;
 uint32_t ultimoReporteMs = 0;
 uint32_t sesionGateway = 0;
 bool radioLista = false;
 bool wifiConectada = false;
-bool canalCompatible = false;
+bool udpLista = false;
+uint8_t canalRadioActual = 0;
 uint32_t ultimoIntentoWifiMs = 0;
 
 // Inserta solo mensajes de registro de nodo desde el callback de ESP-NOW.
@@ -230,7 +233,7 @@ bool registroTorreAutorizado(const EventoRegistro &evento) {
 
 void anunciarGateway() {
   PaqueteAnuncioGateway paquete = {crearEncabezado(TipoPaquete::ANUNCIO_GATEWAY),
-                                   CANAL_ESPNOW, sesionGateway};
+                                   canalRadioActual, sesionGateway};
   enviarBroadcast(&paquete, sizeof(paquete));
 }
 
@@ -331,77 +334,84 @@ void actualizarDestinoPc() {
 }
 
 bool destinoPcDisponible() {
-  return wifiConectada && canalCompatible && WiFi.status() == WL_CONNECTED &&
+  return wifiConectada && udpLista && WiFi.status() == WL_CONNECTED &&
          controlCaptura.activa(millis()) && puertoHttpPc != 0 &&
          static_cast<int32_t>(venceDestinoPcMs - millis()) > 0;
 }
 
 void conectarWifiPc() {
   ultimoIntentoWifiMs = millis();
-  WiFi.begin(NOMBRE_RED, CLAVE_RED, CANAL_ESPNOW);
-  Serial.printf("Conectando al hotspot de la PC: %s (canal esperado %u)\n",
-                NOMBRE_RED, CANAL_ESPNOW);
+  WiFi.begin(NOMBRE_RED, CLAVE_RED);
+  Serial.printf("Conectando al hotspot de la PC: %s (canal automático)\n", NOMBRE_RED);
 }
 
-// La asociación Wi-Fi y sus reintentos no bloquean el loop ni el LED.
+// El driver sigue al AP; ESP-NOW usa ese mismo canal mediante peers con canal 0.
+// Una pérdida de Wi-Fi cierra la autorización (la PC la recupera para el mismo
+// CSV con una revisión nueva). Un cambio de canal sin
+// desconexión sólo purga telemetría pendiente y conserva la autorización vigente.
 bool actualizarConexionWifi() {
+  const uint32_t ahora = millis();
   if (WiFi.status() != WL_CONNECTED) {
     if (wifiConectada) {
       limpiarCaptura(true);
       wifiConectada = false;
-      canalCompatible = false;
+      udpLista = false;
+      canalRadioActual = 0;
       puertoHttpPc = 0;
       venceDestinoPcMs = 0;
       udp.stop();
       led.intermitente(AMARILLO, 400);
-      Serial.println("Hotspot de la PC desconectado; esperando reconexión");
+      Serial.println("Hotspot de la PC desconectado; buscando automáticamente su canal");
     }
-    if (millis() - ultimoIntentoWifiMs >= INTERVALO_RECONEXION_WIFI_MS) {
+    if (ahora - ultimoIntentoWifiMs >= INTERVALO_RECONEXION_WIFI_MS) {
       WiFi.disconnect();
       conectarWifiPc();
     }
     return false;
   }
 
+  const uint8_t canalActual = WiFi.channel();
   if (!wifiConectada) {
     wifiConectada = true;
-    canalCompatible = WiFi.channel() == CANAL_ESPNOW;
-    Serial.printf("Wi-Fi PC conectado: IP=%s canal=%u\n",
-                  WiFi.localIP().toString().c_str(), WiFi.channel());
-    if (!canalCompatible) {
-      led.intermitente(ROJO, 200);
-      Serial.printf("Canal incompatible: hotspot=%u ESP-NOW=%u. Configure el mismo canal "
-                    "en el hotspot, Gateway, torres y jugador.\n",
-                    WiFi.channel(), CANAL_ESPNOW);
-      return false;
-    }
+    canalRadioActual = canalActual;
+    proximoInicioServiciosMs = ahora;
+    // No responde a registros que hayan quedado de antes de la desconexión.
+    portENTER_CRITICAL(&mutexColaControl);
+    indiceLecturaControl = indiceEscrituraControl = 0;
+    portEXIT_CRITICAL(&mutexColaControl);
+    Serial.printf("Wi-Fi PC conectado: IP=%s canal=%u (automático)\n",
+                  WiFi.localIP().toString().c_str(), canalActual);
+  } else if (canalActual != canalRadioActual) {
+    const uint8_t anterior = canalRadioActual;
+    limpiarCaptura(false);
+    canalRadioActual = canalActual;
+    ultimoAnuncioRadioMs = ahora - INTERVALO_ANUNCIO_RADIO_MS;
+    ultimoAnuncioMs = ahora - INTERVALO_ANUNCIO_GATEWAY_MS;
+    Serial.printf("Hotspot cambió de canal: %u -> %u; ESP-NOW actualizado, anunciando a los nodos\n",
+                  anterior, canalActual);
+  }
+
+  if ((!radioLista || !udpLista) && static_cast<int32_t>(ahora - proximoInicioServiciosMs) >= 0) {
+    proximoInicioServiciosMs = ahora + 2000;
     if (!radioLista) {
       radioLista = inicializarEspNow(WIFI_IF_STA) &&
                    esp_now_register_recv_cb(alRecibir) == ESP_OK;
+      if (!radioLista) esp_now_deinit();
     }
-    if (!radioLista || !udp.begin(PUERTO_DESCUBRIMIENTO_UDP)) {
+    if (radioLista && !udpLista) udpLista = udp.begin(PUERTO_DESCUBRIMIENTO_UDP);
+    if (!radioLista || !udpLista) {
       led.intermitente(ROJO, 200);
-      Serial.println("No se pudo iniciar ESP-NOW o la escucha UDP");
-      canalCompatible = false;
-      return false;
+      Serial.println("No se pudo iniciar ESP-NOW o UDP; se reintentará automáticamente");
+    } else {
+      led.fijo(VERDE);
+      ultimoAnuncioRadioMs = ahora - INTERVALO_ANUNCIO_RADIO_MS;
+      ultimoAnuncioMs = ahora - INTERVALO_ANUNCIO_GATEWAY_MS;
+      Serial.printf("Gateway listo; UDP en %s:%u; sesión=%lu; canal=%u\n",
+                    WiFi.broadcastIP().toString().c_str(), PUERTO_DESCUBRIMIENTO_UDP,
+                    static_cast<unsigned long>(sesionGateway), canalRadioActual);
     }
-    led.fijo(VERDE);
-    ultimoAnuncioMs = millis() - INTERVALO_ANUNCIO_GATEWAY_MS;
-    Serial.printf("Gateway listo; anunciándose por UDP en %s:%u; sesión=%lu\n",
-                  WiFi.broadcastIP().toString().c_str(), PUERTO_DESCUBRIMIENTO_UDP,
-                  static_cast<unsigned long>(sesionGateway));
   }
-  // Detecta también un cambio de canal del AP durante una conexión activa.
-  if (canalCompatible && WiFi.channel() != CANAL_ESPNOW) {
-    limpiarCaptura(true);
-    canalCompatible = false;
-    puertoHttpPc = 0;
-    venceDestinoPcMs = 0;
-    udp.stop();
-    led.intermitente(ROJO, 200);
-    Serial.println("El hotspot cambió de canal; restablezca el canal configurado y reconecte");
-  }
-  return canalCompatible && radioLista;
+  return radioLista && udpLista;
 }
 
 String registroAJson(const EventoRegistro &evento) {
@@ -520,9 +530,9 @@ void loop() {
     limpiarCaptura(true);
     if (WiFi.status() == WL_CONNECTED && millis() - ultimoReporteMs >= 5000) {
       ultimoReporteMs = millis();
-      Serial.printf("Gateway: canal_wifi=%u canal_espnow=%u compatible=%s\n",
-                    static_cast<unsigned int>(WiFi.channel()), CANAL_ESPNOW,
-                    canalCompatible ? "si" : "no");
+      Serial.printf("Gateway: canal_wifi=%u radio=%s udp=%s\n",
+                    static_cast<unsigned int>(WiFi.channel()), radioLista ? "lista" : "no lista",
+                    udpLista ? "listo" : "no listo");
     }
     return;
   }
@@ -530,9 +540,12 @@ void loop() {
   actualizarDestinoPc();
   procesarControles();
   const uint32_t ahora = millis();
+  if (ahora - ultimoAnuncioRadioMs >= INTERVALO_ANUNCIO_RADIO_MS) {
+    ultimoAnuncioRadioMs = ahora;
+    anunciarGateway();
+  }
   if (ahora - ultimoAnuncioMs >= INTERVALO_ANUNCIO_GATEWAY_MS) {
     ultimoAnuncioMs = ahora;
-    anunciarGateway();
     anunciarGatewayPc();
   }
   enviarLotePendiente();

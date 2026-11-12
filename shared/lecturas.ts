@@ -23,6 +23,7 @@ export interface Captura extends SolicitudLectura {
   preparado?: boolean;
   falloControl?: string;
   gatewayConfirmado?: boolean;
+  redReceptor?: { disponible: boolean; host: string | null; error: string | null };
 }
 export interface EstadoServidor {
   actual: Captura | null;

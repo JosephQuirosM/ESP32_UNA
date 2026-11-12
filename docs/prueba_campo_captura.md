@@ -7,8 +7,8 @@ Obtener CSV v4 con procedencia y etiquetas fiables para entrenar y evaluar clasi
 ## Antes de iniciar
 
 1. Monte el área y mantenga las torres inmóviles. Verifique [mapa_torres_fisicas.md](mapa_torres_fisicas.md) y su correspondencia con `python/config_rssi.py`.
-2. Cargue el firmware compatible v4 en las seis placas. Revise las credenciales del hotspot y el mismo canal en todos los `config.h`.
-3. Active el hotspot de la PC en 2.4 GHz, canal 6 por defecto. El Gateway se conecta como estación; no crea la red.
+2. Cargue los firmwares v4 actualizados con descubrimiento de canal en todas las placas. Revise las credenciales del hotspot en `firmware/Gateway/config.h`.
+3. Active el hotspot de la PC en 2.4 GHz. El Gateway se conecta como estación y adopta el canal del hotspot. Espere a que jugador y torres encuentren ese canal y reciban su ID. Consulte [canales automáticos](canales_automaticos.md) para probar cambios durante la captura.
 4. Para la captura web, compile con `npm run build`, levante `npm start` y abra `http://localhost:8000`. Encienda el Gateway y espere «Comunicando con la PC»; después encienda torres y jugador.
 5. Confirme IDs distintos por rol, `gateway_unicast=si` en las torres y contadores de recepción en Gateway. Guarde logs seriales del Gateway y de las cuatro torres en `data/logs/`.
 6. Defina antes de capturar duración, zona, orientación, rotaciones y separación entre entrenamiento y prueba. Los 60 s iniciales del formulario son configurables, no un requisito del preprocesamiento.

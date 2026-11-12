@@ -22,6 +22,7 @@ export class DescubridorGateway extends EventEmitter {
   private error: string | null = null;
   private dispositivos = new Map<string, GatewayDetectado>();
   private destinos = new Map<string, RemoteInfo>();
+  private sesionesRetiradas = new Map<string, Set<number>>();
   private orden: OrdenControl;
   private confirmada = false;
   private ultimoEnvio = 0;
@@ -47,6 +48,17 @@ export class DescubridorGateway extends EventEmitter {
   private guardar() {
     writeFileSync(`${this.rutaControl}.tmp`, JSON.stringify(this.orden));
     renameSync(`${this.rutaControl}.tmp`, this.rutaControl);
+  }
+
+  /** Una reconexión renueva la autorización del mismo CSV con otra revisión. */
+  private recuperarAutorizacion(sesion: number) {
+    if (!this.orden.puerto) return;
+    this.orden = { ...this.orden, sesion,
+      revision: Math.max(Date.now(), this.orden.revision + 1) };
+    this.confirmada = false;
+    this.ultimoEnvio = 0;
+    this.guardar();
+    this.enviar(true);
   }
 
   /** Recupera la misma revisión al reiniciar; un cambio de captura crea otra. */
@@ -103,7 +115,8 @@ export class DescubridorGateway extends EventEmitter {
         this.destinos.get(d.mac)?.port === origen.port && d.sesion === Number(ack[1]));
       if (!dispositivo || (this.orden.sesion && this.orden.sesion !== Number(ack[1]))) return;
       if (Number(ack[4]) !== this.orden.puerto) {
-        if (this.orden.puerto !== 0) this.emit("fallo", this.orden.capturaId, "La autorización del Gateway venció o fue cerrada. El CSV se conserva como parcial.");
+        if (this.orden.puerto !== 0 && Number(ack[4]) === 0)
+          this.recuperarAutorizacion(dispositivo.sesion);
         return;
       }
       if (!this.confirmada) {
@@ -121,13 +134,23 @@ export class DescubridorGateway extends EventEmitter {
     if (campos.some(c => !Number.isInteger(anuncio[c]) || Number(anuncio[c]) < 0 || Number(anuncio[c]) > 0xffffffff) ||
         Number(anuncio.sesion) === 0 || Number(anuncio.canal) < 1 || Number(anuncio.canal) > 14) return;
     const mac = anuncio.mac.toUpperCase();
+    const sesion = Number(anuncio.sesion);
+    if (this.sesionesRetiradas.get(mac)?.has(sesion)) return;
     const controlCaptura = anuncio.controlCaptura === 1;
     if (controlCaptura && (!Number.isSafeInteger(anuncio.revisionControl) || Number(anuncio.revisionControl) < 0)) return;
     if (!this.dispositivos.has(mac) && this.dispositivos.size >= 32) {
       const primero = this.dispositivos.keys().next().value!;
       this.dispositivos.delete(primero); this.destinos.delete(primero);
+      this.sesionesRetiradas.delete(primero);
     }
     this.destinos.set(mac, origen);
+    const anterior = this.dispositivos.get(mac)?.sesion;
+    if (anterior && anterior !== sesion) {
+      const retiradas = this.sesionesRetiradas.get(mac) ?? new Set<number>();
+      retiradas.add(anterior);
+      if (retiradas.size > 64) retiradas.delete(retiradas.values().next().value!);
+      this.sesionesRetiradas.set(mac, retiradas);
+    }
     this.dispositivos.set(mac, {
       mac, ip: origen.address, sesion: Number(anuncio.sesion), canal: Number(anuncio.canal),
       uptimeMs: Number(anuncio.uptimeMs), registrosRecibidos: Number(anuncio.registrosRecibidos),
@@ -137,10 +160,7 @@ export class DescubridorGateway extends EventEmitter {
       capturando: anuncio.capturando === true,
       descartesInactivos: Number(anuncio.descartesInactivos ?? 0), registrosPurgados: Number(anuncio.registrosPurgados ?? 0),
     });
-    if (this.orden.puerto && this.orden.mac === mac && this.orden.sesion !== Number(anuncio.sesion)) {
-      this.emit("fallo", this.orden.capturaId, "El Gateway se reinició durante la captura. Inicia un archivo nuevo.");
-      return;
-    }
+    if (this.orden.puerto && this.orden.mac && this.orden.mac !== mac) return;
     if (controlCaptura && Number(anuncio.revisionControl) > this.orden.revision) {
       if (this.orden.puerto) {
         this.emit("fallo", this.orden.capturaId, "Otro control reemplazó la autorización del Gateway.");
@@ -148,6 +168,16 @@ export class DescubridorGateway extends EventEmitter {
       }
       this.orden.revision = Number(anuncio.revisionControl) + 1;
       this.guardar();
+    }
+    if (this.orden.puerto && this.orden.mac === mac && this.orden.sesion !== sesion) {
+      this.recuperarAutorizacion(sesion);
+      return;
+    }
+    if (this.orden.puerto && this.orden.mac === mac &&
+        anuncio.capturaId === this.orden.capturaId && anuncio.capturando === false &&
+        Number(anuncio.revisionControl) === this.orden.revision) {
+      this.recuperarAutorizacion(sesion);
+      return;
     }
     this.enviar(true);
   }

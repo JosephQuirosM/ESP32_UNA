@@ -98,7 +98,7 @@ test("Sin ACK en 10 s conserva un CSV fallido y desactiva el Gateway", async () 
   } finally { await gestor.cerrar(); await gateway.cerrar(); rmSync(carpeta, { recursive: true, force: true }); }
 });
 
-test("Gateway antiguo se rechaza y un reinicio invalida la captura activa", async () => {
+test("Gateway antiguo se rechaza; un reinicio del mismo Gateway recupera el mismo CSV", async () => {
   const carpeta = mkdtempSync(join(tmpdir(), "control-version-"));
   const gestor = new GestorLecturas({ raiz: resolve(".."), directorioDatos: carpeta, python: "python3",
     host: "127.0.0.1", puertoHttp: await puertoLibre(), puertoUdp: await puertoLibre(), destinoUdp: "127.0.0.1", zonaHoraria: "America/Costa_Rica" });
@@ -112,9 +112,56 @@ test("Gateway antiguo se rechaza y un reinicio invalida la captura activa", asyn
     gateway.controlCaptura = true; gateway.anunciar();
     await esperar(() => gestor.gateway.estado().dispositivos.some(d => d.controlCaptura), Boolean);
     const nuevo = iniciar();
-    await esperar(() => gestor.obtener(nuevo.id), c => c.estado === "grabando");
-    gateway.sesion += 1; gateway.revision = 0; gateway.puertoHttp = 0; gateway.anunciar();
-    const reinicio = await esperar(() => gestor.obtener(nuevo.id), c => c.estado === "error");
-    assert.match(reinicio.error!, /reinició/);
+    const grabando = await esperar(() => gestor.obtener(nuevo.id), c => c.estado === "grabando");
+    const revision = gateway.revision;
+    gateway.sesion += 1; gateway.revision = 0; gateway.puertoHttp = 0; gateway.habilitada = false; gateway.anunciar();
+    await esperar(() => gateway.revision > revision && gateway.habilitada, Boolean);
+    assert.equal(gestor.obtener(nuevo.id).estado, "grabando");
+    assert.equal(gestor.obtener(nuevo.id).inicioUtc, grabando.inicioUtc);
+    assert.equal(gateway.capturaId, nuevo.id);
+  } finally { await gestor.cerrar(); await gateway.cerrar(); rmSync(carpeta, { recursive: true, force: true }); }
+});
+
+test("Juego continúa en el mismo CSV tras corte, cambio de canal y renovación; detener no se revierte", async () => {
+  const carpeta = mkdtempSync(join(tmpdir(), "control-reconexion-"));
+  const gestor = new GestorLecturas({ raiz: resolve(".."), directorioDatos: carpeta, python: "python3",
+    host: "127.0.0.1", puertoHttp: await puertoLibre(), puertoUdp: await puertoLibre(), destinoUdp: "127.0.0.1", zonaHoraria: "America/Costa_Rica" });
+  const gateway = new GatewaySimulado();
+  await gateway.iniciar(gestor.configuracion.puertoUdp);
+  const post = (id: string, secuencia: number) => fetch(`http://127.0.0.1:${gestor.configuracion.puertoHttp}/v1/registros`, {
+    method: "POST", headers: { "Content-Type": "application/json", "X-Heatmap-Captura": id },
+    body: JSON.stringify([{ ...REGISTRO, secuencia }]),
+  });
+  try {
+    const a = gestor.iniciar({ solicitudId: randomUUID(), nombreArchivo: "partida", duracionSegundos: null, directorioSalida: carpeta });
+    const inicial = await esperar(() => gestor.obtener(a.id), c => c.estado === "grabando");
+    assert.equal((await post(a.id, 1)).status, 202);
+    const revision = gateway.revision;
+    const ackViejo = gateway.ultimoAck;
+    gateway.online = false; gateway.habilitada = false; gateway.cola = [];
+    gestor.gateway.cerrar(); // El panel suspende UDP al desaparecer el hotspot.
+    await new Promise(r => setTimeout(r, 500));
+    assert.equal(gestor.obtener(a.id).estado, "grabando");
+    gestor.gateway.iniciar();
+    gateway.canal = 11; gateway.online = true;
+    await esperar(() => gateway.revision > revision && gateway.habilitada, Boolean);
+    gateway.enviar(ackViejo); // Un ACK de la autorización anterior no reinicia el reloj.
+    assert.equal((await post(a.id, 2)).status, 202);
+    const actual = await esperar(() => gestor.obtener(a.id), c => c.filasEscritas === 2);
+    assert.equal(actual.pid, inicial.pid);
+    assert.equal(actual.archivo, inicial.archivo);
+    assert.equal(actual.inicioUtc, inicial.inicioUtc);
+    assert.equal(gestor.listar().length, 1);
+    assert.equal(gateway.capturaId, a.id);
+    const filas = readFileSync(join(carpeta, actual.archivo), "utf8").trim().split("\n");
+    assert.equal(filas.length, 3);
+    // Una segunda caída durante la parada no puede reabrir la partida.
+    gateway.online = false; gateway.habilitada = false;
+    gestor.detener(a.id);
+    await esperar(() => gestor.obtener(a.id), c => c.estado === "detenida");
+    gateway.online = true; gateway.canal = 1; gateway.anunciar();
+    await esperar(() => gateway.puertoHttp, p => p === 0);
+    assert.equal(gateway.habilitada, false);
+    assert.equal(gestor.obtener(a.id).estado, "detenida");
   } finally { await gestor.cerrar(); await gateway.cerrar(); rmSync(carpeta, { recursive: true, force: true }); }
 });

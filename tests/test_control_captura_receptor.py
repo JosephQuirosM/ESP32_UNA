@@ -13,11 +13,85 @@ import uuid
 from http.client import HTTPConnection
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
-from receptor_gateway import EscritorCsv, ServidorRegistros
+from receptor_gateway import EscritorCsv, ServidorRegistros, ReceptorCaptura
+from control_gateway import ControlGatewayUdp
 from test_receptor_gateway import REGISTRO
 
 
 class ControlReceptorTests(unittest.TestCase):
+    def test_receptor_reabre_red_y_conserva_csv_e_identidad(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ruta = Path(tmp) / "partida.csv"
+            escritor = EscritorCsv(ruta, nuevo=True)
+            escritor.iniciar()
+            token = str(uuid.uuid4())
+            receptor = ReceptorCaptura(escritor, token, 0)
+
+            def post(id_captura, secuencia):
+                conexion = HTTPConnection(receptor.host, receptor.servidor.server_address[1], timeout=2)
+                conexion.request("POST", "/v1/registros", json.dumps([{**REGISTRO, "secuencia": secuencia}]),
+                                 {"X-Heatmap-Captura": id_captura})
+                respuesta = conexion.getresponse()
+                respuesta.read()
+                estado = respuesta.status
+                conexion.close()
+                return estado
+
+            try:
+                self.assertTrue(receptor.cambiar_red("127.0.0.1"))
+                receptor.puerto = receptor.servidor.server_address[1]
+                receptor.iniciar_grabacion()
+                self.assertEqual(post(token, 1), 202)
+                self.assertFalse(receptor.cambiar_red(None))
+                self.assertFalse(receptor.estado_red()["disponible"])
+                self.assertTrue(escritor._hilo.is_alive())
+                # Si el puerto no se puede abrir, sigue esperando sin perder el CSV.
+                with socket.socket() as ocupado:
+                    ocupado.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    ocupado.bind(("127.0.0.1", receptor.puerto))
+                    ocupado.listen()
+                    self.assertFalse(receptor.cambiar_red("127.0.0.1"))
+                self.assertTrue(receptor.cambiar_red("127.0.0.2"))
+                self.assertEqual(post(str(uuid.uuid4()), 2), 409)
+                self.assertEqual(post(token, 2), 202)
+                receptor.cerrar()
+                self.assertFalse(receptor.cambiar_red("127.0.0.1"))
+            finally:
+                receptor.cerrar()
+                escritor.cerrar()
+            with ruta.open() as archivo:
+                filas = list(csv.DictReader(archivo))
+            self.assertEqual([f["secuencia"] for f in filas], ["1", "2"])
+
+    def test_control_cli_renueva_tras_cierre_sin_cambiar_captura(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            token = str(uuid.uuid4())
+            control = ControlGatewayUdp(0, 8080, token, Path(tmp) / "control.json")
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as gateway:
+                gateway.bind(("127.0.0.1", 0))
+                origen = gateway.getsockname()
+                try:
+                    anuncio = {"mac": "AA:BB:CC:DD:EE:01", "sesion": 456,
+                               "controlCaptura": 1, "revisionControl": 0}
+                    control._recibir(b"HEATMAP_GATEWAY_V1 " + json.dumps(anuncio).encode(), origen)
+                    revision = control.revision
+                    ack = f"HEATMAP_ACK_V3 456 {revision} {token}"
+                    control._recibir(f"{ack} 8080".encode(), origen)
+                    self.assertTrue(control.confirmado.is_set())
+                    control._recibir(f"{ack} 0".encode(), origen)
+                    self.assertGreater(control.revision, revision)
+                    nueva = control.revision
+                    self.assertFalse(control.confirmado.is_set())
+                    self.assertIsNone(control.fallo)
+                    self.assertEqual(control.captura_id, token)
+                    control._recibir(f"{ack} 0".encode(), origen)
+                    self.assertEqual(control.revision, nueva)
+                    control._recibir(f"HEATMAP_ACK_V3 456 {nueva} {token} 8080".encode(), origen)
+                    self.assertTrue(control.confirmado.is_set())
+                    self.assertEqual(json.loads(control.ruta.read_text())["capturaId"], token)
+                finally:
+                    control.cerrar()
+
     def test_http_no_admite_antes_de_inicio_y_rechaza_identidad_anterior(self):
         with tempfile.TemporaryDirectory() as tmp:
             escritor = EscritorCsv(Path(tmp) / "captura.csv", nuevo=True); escritor.iniciar()
