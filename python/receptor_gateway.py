@@ -28,6 +28,7 @@ from detectar_hotspot import detectar_hotspot
 MAXIMO_UINT32 = 4_294_967_295
 MAXIMO_REGISTROS_LOTE = 8
 CAPACIDAD_COLA_CSV = 256
+ESPERAS_REEMPLAZO_ESTADO_S = (0.01, 0.025, 0.05, 0.1, 0.2)
 
 COLUMNAS_CSV = [
     "timestamp_utc_pc",
@@ -44,6 +45,27 @@ COLUMNAS_CSV = [
     "rssi",
     "movimiento",
 ]
+
+
+def guardar_estado(ruta: Path, texto: str) -> None:
+    """Publica el estado de forma atómica y tolera bloqueos breves en Windows."""
+    try:
+        ruta.parent.mkdir(parents=True, exist_ok=True)
+        temporal = ruta.with_suffix(".tmp")
+        temporal.write_text(texto, encoding="utf-8")
+        esperas = iter(ESPERAS_REEMPLAZO_ESTADO_S)
+        while True:
+            try:
+                temporal.replace(ruta)
+                return
+            except PermissionError as error:
+                # Un lector puede mantener abierto el destino sin permiso de reemplazo.
+                espera = next(esperas, None)
+                if getattr(error, "winerror", None) not in (5, 32, 33) or espera is None:
+                    raise
+                time.sleep(espera)
+    except OSError as error:
+        raise RuntimeError(f"No se pudo guardar el estado de la captura en {ruta}: {error}") from error
 
 
 def _entero_en_rango(registro: dict[str, Any], campo: str, minimo: int, maximo: int) -> int:
@@ -152,8 +174,7 @@ class EscritorCsv:
         self._hilo.join(timeout=5)
         if self._hilo.is_alive():
             raise RuntimeError("el escritor CSV no terminó a tiempo")
-        if self._error is not None:
-            raise RuntimeError("falló la escritura del CSV") from self._error
+        self.comprobar_error()
 
     def _escribir(self) -> None:
         try:
@@ -378,10 +399,7 @@ def main() -> int:
                       redReceptor=receptor.estado_red())
         texto = json.dumps(estado, ensure_ascii=False)
         if args.estado_json:
-            args.estado_json.parent.mkdir(parents=True, exist_ok=True)
-            temporal = args.estado_json.with_suffix(".tmp")
-            temporal.write_text(texto, encoding="utf-8")
-            temporal.replace(args.estado_json)
+            guardar_estado(args.estado_json, texto)
         if args.control_json:
             try:
                 print(texto, flush=True)
@@ -495,6 +513,8 @@ def main() -> int:
                      error=str(fallo) if fallo else None)
         except Exception as error:
             fallo = fallo or error
+            if args.control_json:
+                print(str(fallo), file=sys.stderr, flush=True)
         if not args.control_json:
             print("Receptor y CSV cerrados." if not fallo else f"Error: {fallo}", flush=True)
     # Evita otro flush sobre una tubería rota durante la salida del intérprete.

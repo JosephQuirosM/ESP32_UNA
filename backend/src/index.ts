@@ -38,7 +38,6 @@ const gestor = new GestorLecturas({
   zonaHoraria: process.env.ZONA_HORARIA ?? "America/Costa_Rica",
 });
 const seguridad = new RaicesAutorizadas(gestor.configuracion.directorioDatos);
-gestor.seguridad = seguridad;
 const acceso = new AccesoRemoto();
 const app = crearApp(gestor, gestor.gateway, seguridad, acceso);
 let ipsPublicadas = new Set<string>();

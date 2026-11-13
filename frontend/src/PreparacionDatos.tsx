@@ -12,6 +12,7 @@ type Resultado = {
   resumen: { archivos_entrada: number; filas_entrada: number; vectores_completos: number; vectores_estables: number; duplicados_en_vector: number };
 };
 const MAX_BYTES = 28 * 1024 * 1024;
+const NOMBRE_PREDETERMINADO = "dataset_etiquetado.csv";
 
 export default function PreparacionDatos() {
   const [seccion, setSeccion] = useState<"entrenamiento" | "jugadores">("entrenamiento");
@@ -29,6 +30,7 @@ function PreparacionEntrenamiento() {
   const [arrastrando, setArrastrando] = useState(false);
   const [error, setError] = useState("");
   const [procesando, setProcesando] = useState(false);
+  const [nombreSalida, setNombreSalida] = useState(NOMBRE_PREDETERMINADO);
   const [directorioSalida, setDirectorioSalida] = useState("");
   const [seleccionandoCarpeta, setSeleccionandoCarpeta] = useState(false);
   const [selectorLocal, setSelectorLocal] = useState(false);
@@ -102,10 +104,11 @@ function PreparacionEntrenamiento() {
     try {
       const carga = await Promise.all(archivos.map(async (a) => a.ruta ? { ruta: a.ruta, zona: Number(a.zona) } :
         { nombre: a.nombre, contenido: await a.file!.text(), zona: Number(a.zona) }));
-      const respuesta = await fetch("/api/preparacion", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivos: carga, directorioSalida, ...(definirCuadricula ? { cuadricula } : {}) }) });
+      const respuesta = await fetch("/api/preparacion", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivos: carga, directorioSalida, nombreSalida, ...(definirCuadricula ? { cuadricula } : {}) }) });
       const datos = await respuesta.json();
       if (!respuesta.ok) throw new Error(datos.error ?? "No se pudieron preparar los archivos.");
       setResultado(datos as Resultado);
+      setNombreSalida(NOMBRE_PREDETERMINADO);
     } catch (e) {
       setError(e instanceof TypeError ? "No se pudo conectar con el servidor. Conservamos tus archivos seleccionados para reintentar." : e instanceof Error ? e.message : "No se pudo completar la preparación.");
     } finally { setProcesando(false); }
@@ -140,7 +143,7 @@ function PreparacionEntrenamiento() {
             </>}
             <div className="preparacion-acciones">
               <button className="boton secundario" disabled={procesando} onClick={() => inputRef.current?.click()}><FolderOpen size={18} /> Abrir gestor de archivos</button>
-              <button className="boton secundario" disabled={procesando} onClick={() => setExploradorRemoto("entrada")}><FolderOpen size={18}/> Explorar CSV de la PC</button>
+              {!selectorLocal && <button className="boton secundario" disabled={procesando} onClick={() => setExploradorRemoto("entrada")}><FolderOpen size={18}/> Explorar CSV de la PC</button>}
               <button className="boton preparacion-limpiar" disabled={procesando || !archivos.length} onClick={() => { setArchivos([]); setError(""); setResultado(null); }}><Trash2 size={17} /> Limpiar archivos cargados</button>
             </div>
           </section>
@@ -157,7 +160,11 @@ function PreparacionEntrenamiento() {
         </div>
         <aside className="tarjeta preparacion-salida">
           <div className="preparacion-titulo"><span className="preparacion-icono pequeno"><Save size={21} /></span><div><h2>Archivo consolidado de salida</h2><p>Un único CSV etiquetado para entrenar</p></div></div>
-          <div className="preparacion-previa"><span>Nombre del archivo:</span><strong><FileText size={17} />dataset_etiquetado.csv</strong></div>
+          <div className="preparacion-previa">
+            <label htmlFor="nombre-dataset">Nombre del archivo</label>
+            <input id="nombre-dataset" type="text" value={nombreSalida} maxLength={84} required
+              disabled={procesando} onChange={(e) => { setNombreSalida(e.target.value); setResultado(null); setError(""); }} />
+          </div>
           <p>Se agrupan las cuatro lecturas RSSI de cada secuencia y se conserva su zona y archivo de origen.</p>
           <div className="preparacion-destino">
             <label htmlFor="directorio-salida">Carpeta de salida en la PC del backend</label>
@@ -166,7 +173,7 @@ function PreparacionEntrenamiento() {
             <small>El CSV y el resumen se guardarán aquí. Si el nombre ya existe, se añade un número.</small>
           </div>
           {invalidos && <p className="preparacion-pendiente">Revisa las zonas: deben ser enteros positivos y pertenecer a la cuadrícula indicada.</p>}
-          <button className="boton primario" disabled={!archivos.length || !directorioSalida.trim() || invalidos || procesando || seleccionandoCarpeta} onClick={preparar}>{procesando ? <LoaderCircle size={19} className="preparacion-girando" /> : <Save size={19} />}{procesando ? "Preparando datos…" : "Preparar datos y unificar CSV"}</button>
+          <button className="boton primario" disabled={!archivos.length || !directorioSalida.trim() || !nombreSalida.trim() || invalidos || procesando || seleccionandoCarpeta} onClick={preparar}>{procesando ? <LoaderCircle size={19} className="preparacion-girando" /> : <Save size={19} />}{procesando ? "Preparando datos…" : "Preparar datos y unificar CSV"}</button>
           {procesando && <p role="status">Python está validando y agrupando las lecturas. Espera a que termine.</p>}
           {error && <p className="preparacion-error" role="alert">{error}</p>}
           {resultado && <div className="preparacion-resultado" role="status">

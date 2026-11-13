@@ -11,14 +11,49 @@ import time
 import unittest
 import uuid
 from http.client import HTTPConnection
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
-from receptor_gateway import EscritorCsv, ServidorRegistros, ReceptorCaptura
+from receptor_gateway import EscritorCsv, ServidorRegistros, ReceptorCaptura, guardar_estado
 from control_gateway import ControlGatewayUdp
 from test_receptor_gateway import REGISTRO
 
 
 class ControlReceptorTests(unittest.TestCase):
+    def test_estado_reintenta_si_windows_bloquea_el_reemplazo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ruta = Path(tmp) / "estado.json"
+            ruta.write_text('{"estado": "iniciando"}', encoding="utf-8")
+            reemplazar = Path.replace
+            bloqueo = PermissionError("Acceso denegado")
+            bloqueo.winerror = 5
+
+            def reemplazar_despues_de_liberar(temporal, destino):
+                if llamadas.call_count == 1:
+                    self.assertEqual(json.loads(destino.read_text())["estado"], "iniciando")
+                    raise bloqueo
+                reemplazar(temporal, destino)
+
+            with patch.object(Path, "replace", autospec=True,
+                              side_effect=reemplazar_despues_de_liberar) as llamadas:
+                guardar_estado(ruta, '{"estado": "grabando"}')
+            self.assertEqual(llamadas.call_count, 2)
+            self.assertEqual(json.loads(ruta.read_text())["estado"], "grabando")
+
+    def test_estado_reporta_la_ruta_si_windows_mantiene_el_bloqueo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ruta = Path(tmp) / "estado.json"
+            bloqueo = PermissionError("Acceso denegado")
+            bloqueo.winerror = 5
+            with patch.object(Path, "replace", side_effect=bloqueo) as reemplazar, \
+                    patch("receptor_gateway.time.sleep") as esperar:
+                with self.assertRaises(RuntimeError) as fallo:
+                    guardar_estado(ruta, "{}")
+            self.assertIn(str(ruta), str(fallo.exception))
+            self.assertIs(fallo.exception.__cause__, bloqueo)
+            self.assertGreater(esperar.call_count, 0)
+            self.assertEqual(reemplazar.call_count, esperar.call_count + 1)
+
     def test_receptor_reabre_red_y_conserva_csv_e_identidad(self):
         with tempfile.TemporaryDirectory() as tmp:
             ruta = Path(tmp) / "partida.csv"

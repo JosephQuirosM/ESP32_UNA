@@ -8,7 +8,7 @@ import { seleccionarArchivosLocales } from "./selectorCarpeta.js";
 import { ErrorPeticion, type Configuracion } from "./gestor.js";
 import { recordarRutas } from "./rutasPreferidas.js";
 import type { RaicesAutorizadas } from "./raicesAutorizadas.js";
-import { peticionLocal } from "./accesoLocal.js";
+import { puedeUsarRutasLocales, restriccionesDeRutas } from "./accesoLocal.js";
 
 type Mapa = { indice: number; rutaImagen: string | null; rutaLecturas?: string; tieneMapa?: boolean; rutaPredicciones: string; rutaResumen: string; [clave: string]: unknown };
 export function rutasMapas(config: Configuracion, seguridad?: RaicesAutorizadas) {
@@ -32,22 +32,23 @@ export function rutasMapas(config: Configuracion, seguridad?: RaicesAutorizadas)
     try { return JSON.parse(await readFile(join(base,id,"estado.json"),"utf8")); }
     catch { throw new ErrorPeticion(404,"Generación no encontrada."); }
   }
-  async function exigirSolicitudAutorizada(id: string) {
-    if (!seguridad) return;
+  async function exigirSolicitudAutorizada(id: string, restricciones?: RaicesAutorizadas) {
+    if (!restricciones) return;
     const solicitud = JSON.parse(await readFile(join(base, id, "solicitud.json"), "utf8"));
-    solicitud.entradas.forEach((ruta: string) => seguridad.permitir(ruta, "archivo"));
-    seguridad.permitir(solicitud.modelo, "archivo");
-    seguridad.permitir(solicitud.directorioSalida, "carpeta");
+    solicitud.entradas.forEach((ruta: string) => restricciones.permitir(ruta, "archivo"));
+    restricciones.permitir(solicitud.modelo, "archivo");
+    restricciones.permitir(solicitud.directorioSalida, "carpeta");
   }
   router.post("/seleccionar",async(req,res)=>{
-    if (!peticionLocal(req)) throw new ErrorPeticion(403, "El selector nativo sólo se abre desde esta PC.");
+    if (!puedeUsarRutasLocales(req)) throw new ErrorPeticion(403, "El selector nativo sólo se abre desde esta PC.");
     if (!["csv","joblib"].includes(req.body?.tipo)) throw new ErrorPeticion(400,"Tipo de archivo inválido.");
     if (selectorAbierto) throw new ErrorPeticion(409,"Ya hay un selector de archivos abierto.");
     selectorAbierto=true;
-    try { const archivos = await seleccionarArchivosLocales(config.raiz,req.body.tipo); archivos.forEach((ruta) => seguridad?.permitir(ruta, "archivo")); res.json({ archivos }); }
+    try { res.json({ archivos: await seleccionarArchivosLocales(config.raiz, req.body.tipo) }); }
     finally { selectorAbierto=false; }
   });
   router.post("/",async(req,res)=>{
+    const restricciones = restriccionesDeRutas(req, seguridad);
     const anterior=ocupado;
     if (anterior) { try { const previo=await estadoTrabajo(anterior); if (["completado","error"].includes(previo.estado) && ocupado===anterior) ocupado=null; } catch { /* Sigue iniciando. */ } }
     if (ocupado) throw new ErrorPeticion(409,"Hay una generación de mapas en curso.");
@@ -61,15 +62,15 @@ export function rutasMapas(config: Configuracion, seguridad?: RaicesAutorizadas)
     if (!Number.isSafeInteger(ventana) || ventana<1 || ventana>1000) throw new ErrorPeticion(400,"El suavizado debe ser un entero entre 1 y 1000.");
     if (!Array.isArray(req.body?.entradas) || !req.body.entradas.length || req.body.entradas.length>50) throw new ErrorPeticion(400,"Selecciona entre 1 y 50 CSV.");
     const entradas=[]; let bytes=0;
-    for (const valor of req.body.entradas) { const f=await archivo(valor,".csv"); seguridad?.permitir(f.ruta, "archivo"); entradas.push(f.ruta); bytes+=f.bytes; }
+    for (const valor of req.body.entradas) { const f=await archivo(valor,".csv"); restricciones?.permitir(f.ruta, "archivo"); entradas.push(f.ruta); bytes+=f.bytes; }
     if (new Set(entradas).size!==entradas.length) throw new ErrorPeticion(400,"Hay archivos CSV repetidos.");
     if (bytes>200*1024*1024) throw new ErrorPeticion(400,"Los CSV no deben superar 200 MB en total.");
     const modelo=(await archivo(req.body.modelo,".joblib")).ruta;
-    seguridad?.permitir(modelo, "archivo");
+    restricciones?.permitir(modelo, "archivo");
     if (!req.body.directorioSalida) throw new ErrorPeticion(400,"Selecciona una carpeta de salida para los mapas.");
     let directorioSalida:string;
     try { directorioSalida=await realpath(ruta(req.body.directorioSalida)); if (!(await stat(directorioSalida)).isDirectory()) throw new Error(); } catch { throw new ErrorPeticion(400,"La carpeta de salida no existe o no es accesible."); }
-    seguridad?.permitir(directorioSalida, "carpeta");
+    restricciones?.permitir(directorioSalida, "carpeta");
     if (ocupado) throw new ErrorPeticion(409,"Hay una generación de mapas en curso.");
     const id=randomUUID(), carpeta=join(base,id); ocupado=id;
     try {
@@ -92,7 +93,7 @@ export function rutasMapas(config: Configuracion, seguridad?: RaicesAutorizadas)
     const carpeta=join(base,req.params.id);
     if(["pendiente","generando"].includes(estado.estado)) { try{ const {pid}=JSON.parse(await readFile(join(carpeta,"pid.json"),"utf8"));process.kill(pid,0); }catch{estado={...estado,estado:"error",error:"El proceso de generación ya no está disponible."};} }
     const solicitud=JSON.parse(await readFile(join(carpeta,"solicitud.json"),"utf8"));
-    await exigirSolicitudAutorizada(req.params.id);
+    await exigirSolicitudAutorizada(req.params.id, restriccionesDeRutas(req, seguridad));
     res.json({id:req.params.id,...solicitud,...estado,
       resumenGeneralCsv:estado.rutaResumenGeneralCsv ? `/api/mapas/${req.params.id}/resumen/csv` : undefined,
       resumenGeneralJson:estado.rutaResumenGeneralJson ? `/api/mapas/${req.params.id}/resumen/json` : undefined,
@@ -100,7 +101,7 @@ export function rutasMapas(config: Configuracion, seguridad?: RaicesAutorizadas)
   });
   router.get("/:id/resumen/:tipo",async(req,res)=>{
     const estado=await estadoTrabajo(req.params.id);
-    await exigirSolicitudAutorizada(req.params.id);
+    await exigirSolicitudAutorizada(req.params.id, restriccionesDeRutas(req, seguridad));
     const tipo=req.params.tipo;
     const destino=tipo==="csv"?estado.rutaResumenGeneralCsv:tipo==="json"?estado.rutaResumenGeneralJson:null;
     if(!destino)throw new ErrorPeticion(404,"Resumen no encontrado.");
@@ -108,7 +109,7 @@ export function rutasMapas(config: Configuracion, seguridad?: RaicesAutorizadas)
   });
   router.get("/:id/archivo/:indice/:tipo",async(req,res)=>{
     const estado=await estadoTrabajo(req.params.id);
-    await exigirSolicitudAutorizada(req.params.id);
+    await exigirSolicitudAutorizada(req.params.id, restriccionesDeRutas(req, seguridad));
     if(!/^\d+$/.test(req.params.indice))throw new ErrorPeticion(404,"Mapa no encontrado.");
     const mapa=estado.mapas.find((m:Mapa)=>m.indice===Number(req.params.indice));
     if(!mapa)throw new ErrorPeticion(404,"Mapa no encontrado.");

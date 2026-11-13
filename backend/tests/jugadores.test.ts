@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { request } from "node:http";
 import { test } from "node:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,10 +39,26 @@ test("Preparación/Jugadores separa, ordena y descarga sin generar mapas", { ski
   await new Promise<void>(resolver => server.on("listening", resolver));
   const origen = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const api = `${origen}/api/preparacion/jugadores`;
-  const post = (carga: unknown) => fetch(api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(carga) });
+  const post = (carga: unknown, headers: Record<string, string> = {}) =>
+    fetch(api, { method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(carga) });
+  function estadoDesdeRed(url: string, carga?: unknown) {
+    return new Promise<number | undefined>((resolve, reject) => {
+      const req = request(url, { method: carga ? "POST" : "GET",
+        headers: { Host: "192.168.4.1:8000", "Content-Type": "application/json" } }, res => {
+        res.resume();
+        res.on("end", () => resolve(res.statusCode));
+      });
+      req.on("error", reject);
+      req.end(carga ? JSON.stringify(carga) : undefined);
+    });
+  }
   try {
-    assert.equal((await post({ entrada: ajena, directorioSalida: raiz, nombre: "prueba" })).status, 403);
-    const respuesta = await post({ entrada, directorioSalida: raiz, nombre: "prueba" });
+    const solicitud = { entrada: ajena, directorioSalida: externa, nombre: "prueba" };
+    assert.equal(await estadoDesdeRed(api, { ...solicitud, directorioSalida: raiz }), 403);
+    assert.equal(await estadoDesdeRed(api, { ...solicitud, entrada }), 403);
+    assert.equal((await post(solicitud, { Origin: "http://otro-sitio.test" })).status, 403);
+    writeFileSync(ajena, readFileSync(entrada));
+    const respuesta = await post(solicitud);
     assert.equal(respuesta.status, 202);
     const { id } = await respuesta.json() as { id: string };
     let trabajo: any;
@@ -68,8 +85,15 @@ test("Preparación/Jugadores separa, ordena y descarga sin generar mapas", { ski
     assert.equal((await fetch(`${api}/${id}/archivo/99`)).status, 404);
     assert.deepEqual((await (await fetch(`${api}/${id}`)).json()).jugadores, trabajo.jugadores);
     assert.equal(existsSync(join(raiz, "data/processed/preparaciones_jugadores", id, "mapa_0.png")), false);
+    for (const ruta of [`/api/preparacion/jugadores/${id}`, primero.descarga, trabajo.resumenGeneralCsv]) {
+      assert.equal(await estadoDesdeRed(`${origen}${ruta}`), 403);
+    }
+    const acceso = seguridad.agregar(externa);
+    assert.equal(await estadoDesdeRed(`${origen}${primero.descarga}`), 200);
+    seguridad.quitar(acceso.id);
     seguridad.quitar(autorizada.id);
-    assert.equal((await fetch(`${origen}${primero.descarga}`)).status, 403);
+    assert.equal(await estadoDesdeRed(`${origen}${primero.descarga}`), 403);
+    assert.equal((await fetch(`${origen}${primero.descarga}`)).status, 200);
   } finally {
     await new Promise<void>(resolver => server.close(() => resolver()));
     rmSync(raiz, { recursive: true, force: true });

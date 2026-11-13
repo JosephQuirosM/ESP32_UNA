@@ -4,7 +4,7 @@ import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { Router, json } from "express";
 import { ErrorPeticion, type Configuracion } from "./gestor.js";
-import { peticionLocal } from "./accesoLocal.js";
+import { puedeUsarRutasLocales, restriccionesDeRutas } from "./accesoLocal.js";
 import { seleccionarCsv } from "./selectorCarpeta.js";
 import { recordarRutas } from "./rutasPreferidas.js";
 import type { RaicesAutorizadas } from "./raicesAutorizadas.js";
@@ -36,22 +36,19 @@ export function rutasJugadores(config: Configuracion, seguridad?: RaicesAutoriza
     try { return JSON.parse(await readFile(join(carpetaTrabajo(id), "solicitud.json"), "utf8")); }
     catch (error) { if (error instanceof ErrorPeticion) throw error; throw new ErrorPeticion(404, "Separación no encontrada."); }
   }
-  async function autorizar(id: string) {
+  async function autorizar(id: string, restricciones: RaicesAutorizadas | undefined) {
     const solicitud = await solicitudTrabajo(id);
-    if (seguridad) {
-      seguridad.permitir(solicitud.entrada, "archivo");
-      seguridad.permitir(solicitud.directorioSalida, "carpeta");
-    }
+    restricciones?.permitir(solicitud.entrada, "archivo");
+    restricciones?.permitir(solicitud.directorioSalida, "carpeta");
     return solicitud;
   }
 
   router.post("/seleccionar", async (req, res) => {
-    if (!peticionLocal(req)) throw new ErrorPeticion(403, "El selector nativo sólo se abre desde esta PC.");
+    if (!puedeUsarRutasLocales(req)) throw new ErrorPeticion(403, "El selector nativo sólo se abre desde esta PC.");
     if (selectorAbierto) throw new ErrorPeticion(409, "Ya hay un selector de archivos abierto.");
     selectorAbierto = true;
     try {
       const elegido = await seleccionarCsv(config.raiz, "Seleccionar CSV de lecturas por jugador");
-      if (elegido) seguridad?.permitir(elegido, "archivo");
       res.json({ ruta: elegido });
     } finally { selectorAbierto = false; }
   });
@@ -67,6 +64,12 @@ export function rutasJugadores(config: Configuracion, seguridad?: RaicesAutoriza
       throw new ErrorPeticion(400, "El nombre debe tener entre 1 y 80 letras, números, espacios o guiones.");
     const entrada = ruta(req.body?.entrada);
     if (!entrada.toLowerCase().endsWith(".csv")) throw new ErrorPeticion(400, "Selecciona un archivo .csv.");
+    const restricciones = restriccionesDeRutas(req, seguridad);
+    const salida = ruta(req.body?.directorioSalida);
+    if (restricciones) {
+      restricciones.permitir(entrada, "archivo");
+      restricciones.permitir(salida, "carpeta");
+    }
     let entradaReal: string, salidaReal: string;
     try {
       entradaReal = await realpath(entrada);
@@ -74,11 +77,11 @@ export function rutasJugadores(config: Configuracion, seguridad?: RaicesAutoriza
       if (!info.isFile() || !info.size || info.size > 100 * 1024 * 1024) throw new Error();
     } catch { throw new ErrorPeticion(400, "El CSV no existe, está vacío o supera 100 MB."); }
     try {
-      salidaReal = await realpath(ruta(req.body?.directorioSalida));
+      salidaReal = await realpath(salida);
       if (!(await stat(salidaReal)).isDirectory()) throw new Error();
     } catch { throw new ErrorPeticion(400, "La carpeta de salida no existe o no es accesible."); }
-    seguridad?.permitir(entradaReal, "archivo");
-    seguridad?.permitir(salidaReal, "carpeta");
+    restricciones?.permitir(entradaReal, "archivo");
+    restricciones?.permitir(salidaReal, "carpeta");
     const id = randomUUID();
     const carpeta = carpetaTrabajo(id);
     ocupado = id;
@@ -105,13 +108,13 @@ export function rutasJugadores(config: Configuracion, seguridad?: RaicesAutoriza
   });
 
   router.get("/:id", async (req, res) => {
+    const solicitud = await autorizar(req.params.id, restriccionesDeRutas(req, seguridad));
     let estado = await estadoTrabajo(req.params.id);
     const carpeta = carpetaTrabajo(req.params.id);
     if (["pendiente", "procesando"].includes(estado.estado)) {
       try { const { pid } = JSON.parse(await readFile(join(carpeta, "pid.json"), "utf8")); process.kill(pid, 0); }
       catch { estado = { ...estado, estado: "error", error: "El proceso de separación ya no está disponible." }; }
     }
-    const solicitud = await autorizar(req.params.id);
     res.json({ id: req.params.id, ...solicitud, ...estado,
       resumenGeneralCsv: estado.rutaResumenGeneralCsv ? `/api/preparacion/jugadores/${req.params.id}/resumen/csv` : undefined,
       resumenGeneralJson: estado.rutaResumenGeneralJson ? `/api/preparacion/jugadores/${req.params.id}/resumen/json` : undefined,
@@ -119,20 +122,20 @@ export function rutasJugadores(config: Configuracion, seguridad?: RaicesAutoriza
   });
   router.get("/:id/resumen/:tipo", async (req, res) => {
     const estado = await estadoTrabajo(req.params.id);
-    await autorizar(req.params.id);
+    const restricciones = restriccionesDeRutas(req, seguridad);
+    await autorizar(req.params.id, restricciones);
     const rutaResumen = req.params.tipo === "csv" ? estado.rutaResumenGeneralCsv : req.params.tipo === "json" ? estado.rutaResumenGeneralJson : null;
     if (!rutaResumen) throw new ErrorPeticion(404, "Resumen no encontrado.");
-    seguridad?.permitir(rutaResumen, "archivo");
-    res.download(rutaResumen, basename(rutaResumen));
+    res.download(restricciones?.permitir(rutaResumen, "archivo") ?? rutaResumen, basename(rutaResumen));
   });
   router.get("/:id/archivo/:indice", async (req, res) => {
     const estado = await estadoTrabajo(req.params.id);
-    await autorizar(req.params.id);
+    const restricciones = restriccionesDeRutas(req, seguridad);
+    await autorizar(req.params.id, restricciones);
     if (!/^\d+$/.test(req.params.indice)) throw new ErrorPeticion(404, "Jugador no encontrado.");
     const jugador = estado.jugadores.find((j: Resultado) => j.indice === Number(req.params.indice));
     if (!jugador) throw new ErrorPeticion(404, "Jugador no encontrado.");
-    seguridad?.permitir(jugador.rutaLecturas, "archivo");
-    res.download(jugador.rutaLecturas, basename(jugador.rutaLecturas));
+    res.download(restricciones?.permitir(jugador.rutaLecturas, "archivo") ?? jugador.rutaLecturas, basename(jugador.rutaLecturas));
   });
   return router;
 }

@@ -55,6 +55,8 @@ interface EventoPython {
   preparado?: boolean;
 }
 
+type CapturaPersistida = Captura & { iniciadaLocalmente?: true };
+
 /** Construye la fecha del archivo con la zona horaria del PC de captura. */
 export function fechaArchivo(fecha: Date, zonaHoraria: string): string {
   const partes = new Intl.DateTimeFormat("es-CR", {
@@ -117,8 +119,7 @@ export function validarSolicitud(carga: unknown): SolicitudLectura {
 
 /** Administra una captura independiente y conserva su resultado en el disco local. */
 export class GestorLecturas {
-  public seguridad?: RaicesAutorizadas;
-  private registros = new Map<string, Captura>();
+  private registros = new Map<string, CapturaPersistida>();
   private procesos = new Map<string, ChildProcessWithoutNullStreams>();
   private pendientesSalida = new Set<string>();
   private fallos = new Map<string, string>();
@@ -137,7 +138,7 @@ export class GestorLecturas {
     )) {
       const captura = JSON.parse(
         readFileSync(join(this.directorioEstado, archivo), "utf8"),
-      ) as Captura;
+      ) as CapturaPersistida;
       if (
         !captura.id ||
         archivo !== `${captura.id}.json` ||
@@ -295,9 +296,10 @@ export class GestorLecturas {
       throw new ErrorPeticion(404, "La solicitud todavía no creó una captura.");
     return this.presentar(captura);
   }
-  presentar(captura: Captura): Captura {
+  presentar(captura: CapturaPersistida): Captura {
+    const { iniciadaLocalmente: _iniciadaLocalmente, ...publica } = captura;
     return {
-      ...captura,
+      ...publica,
       estado:
         !capturaActiva(captura) && this.pendientesSalida.has(captura.id)
           ? "cerrando"
@@ -306,13 +308,13 @@ export class GestorLecturas {
   }
 
   /** Inicia Python sin shell y reserva un nombre que no sobrescriba otras capturas. */
-  iniciar(carga: unknown): Captura {
+  iniciar(carga: unknown, restricciones?: RaicesAutorizadas): Captura {
     const solicitud = validarSolicitud(carga);
     const anterior = this.listar().find(
       (captura) => captura.solicitudId === solicitud.solicitudId,
     );
     if (anterior) {
-      this.seguridad?.permitir(anterior.directorioSalida ?? this.configuracion.directorioDatos, "carpeta");
+      restricciones?.permitir(anterior.directorioSalida ?? this.configuracion.directorioDatos, "carpeta");
       const rutaSolicitada = solicitud.directorioSalida
         ? resolve(this.configuracion.raiz, solicitud.directorioSalida)
         : this.configuracion.directorioDatos;
@@ -339,7 +341,7 @@ export class GestorLecturas {
     } catch {
       throw new ErrorPeticion(400, "La carpeta de recolección no existe o no permite escribir archivos.");
     }
-    this.seguridad?.permitir(directorioSalida, "carpeta");
+    restricciones?.permitir(directorioSalida, "carpeta");
     if (this.cerrando)
       throw new ErrorPeticion(503, "El backend se está cerrando.");
     if (this.actual())
@@ -359,8 +361,9 @@ export class GestorLecturas {
       )
     )
       archivo = `${base}_${sufijo++}.csv`;
-    const captura: Captura = {
+    const captura: CapturaPersistida = {
       ...solicitud,
+      ...(!restricciones ? { iniciadaLocalmente: true as const } : {}),
       directorioSalida,
       id: randomUUID(),
       archivo,
@@ -480,6 +483,13 @@ export class GestorLecturas {
     if (!existsSync(ruta))
       throw new ErrorPeticion(404, "Esta captura no llegó a crear un CSV.");
     return { ruta, nombre: captura.archivo };
+  }
+
+  revocarCapturaFueraDeRaices(raices: RaicesAutorizadas) {
+    const captura = this.actual();
+    if (!captura || captura.iniciadaLocalmente) return;
+    try { raices.permitir(captura.directorioSalida ?? this.configuracion.directorioDatos, "carpeta"); }
+    catch { this.detener(captura.id); }
   }
 
   /** Solicita cierre ordenado; el plazo propio de Python protege capturas interrumpidas. */

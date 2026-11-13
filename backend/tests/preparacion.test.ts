@@ -22,7 +22,7 @@ test("Preparación HTTP: Python real, descarga y rechazo de entradas inválidas"
   const cabecera = "timestamp_utc_pc,sesion_gateway,jugador_id,sesion_jugador,secuencia,mac_torre,rssi\n";
   const csv = cabecera + ["10:06:1C:D5:95:04", "90:15:06:5A:30:D0", "10:06:1C:D5:95:8C", "10:06:1C:D4:8F:C4"].map((mac) => `2026-10-16T00:00:00Z,1,1,1,7,${mac},-50\n`).join("");
   const archivo = { nombre: "zona12.csv", zona: 12, dataset: "dataset 1", contenido: csv };
-  const post = (archivos: unknown[], directorioSalida = raiz) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivos, directorioSalida }) });
+  const post = (archivos: unknown[], directorioSalida = raiz, nombreSalida?: string) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archivos, directorioSalida, nombreSalida }) });
   try {
     const response = await post([archivo]);
     assert.equal(response.status, 201);
@@ -48,6 +48,25 @@ test("Preparación HTTP: Python real, descarga y rechazo de entradas inválidas"
     assert.equal(readFileSync(join(destino, "dataset_etiquetado.csv"), "utf8"), "no sobrescribir");
     assert.match(readFileSync(exportado.rutaSalida, "utf8"), /,12,dataset 1,zona12.csv,/);
     assert.ok(existsSync(join(destino, "dataset_etiquetado_2.json")));
+    writeFileSync(join(destino, "Entrenamiento cancha.json"), "resumen anterior");
+    const personalizada = await post([archivo], destino, "Entrenamiento cancha.CSV");
+    assert.equal(personalizada.status, 201);
+    const nuevo = await personalizada.json() as { rutaSalida: string; nombre: string; id: string };
+    assert.equal(nuevo.nombre, "Entrenamiento cancha_2.csv");
+    assert.equal(nuevo.rutaSalida, join(destino, nuevo.nombre));
+    assert.ok(existsSync(nuevo.rutaSalida));
+    assert.ok(existsSync(join(destino, "Entrenamiento cancha_2.json")));
+    assert.equal(readFileSync(join(destino, "Entrenamiento cancha.json"), "utf8"), "resumen anterior");
+    assert.equal(existsSync(join(destino, "Entrenamiento cancha.csv")), false);
+    for (const [tipo, extension] of [["csv", "csv"], ["resumen", "json"]]) {
+      const descarga = await fetch(`${url}/${nuevo.id}/${tipo}`);
+      assert.equal(descarga.status, 200);
+      assert.equal(descarga.headers.get("content-disposition"), `attachment; filename="Entrenamiento cancha_2.${extension}"`);
+      await descarga.text();
+    }
+    for (const invalido of ["", "../externo", "carpeta\\archivo", "CON.csv", "a".repeat(81)]) {
+      assert.equal((await post([archivo], destino, invalido)).status, 400);
+    }
     assert.equal((await post([archivo], join(raiz, "inexistente"))).status, 400);
     assert.equal((await fetch(`${url}/seleccionar-carpeta`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ruta: join(raiz, "inexistente") }) })).status, 400);
   } finally {
@@ -82,8 +101,13 @@ test("Preparación toma CSV de la raíz autorizada sin descargarlos al celular",
     const salida = await valida.json() as { rutaSalida: string; resumen: { vectores_completos: number } };
     assert.equal(salida.resumen.vectores_completos, 1);
     assert.match(readFileSync(salida.rutaSalida, "utf8"), /zona_1\.csv/);
-    assert.equal((await post(externa)).status, 403);
-    assert.equal((await post(join(trabajo, "enlace.csv"))).status, 403);
+    assert.equal((await post(externa)).status, 201);
+    for (const ruta of [externa, join(trabajo, "enlace.csv")]) {
+      const respuesta = await fetch(url, { method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "http://otro-sitio.test" },
+        body: JSON.stringify({ archivos: [{ ruta, zona: 1 }], directorioSalida: trabajo }) });
+      assert.equal(respuesta.status, 403);
+    }
   } finally {
     await new Promise<void>(resolve => server.close(() => resolve()));
     rmSync(base, { recursive: true, force: true });

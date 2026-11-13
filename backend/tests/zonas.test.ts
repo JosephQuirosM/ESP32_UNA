@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { crearApp } from "../src/app.js";
 import { GestorLecturas } from "../src/gestor.js";
+import { RaicesAutorizadas } from "../src/raicesAutorizadas.js";
 import { generarZonas, validarCuadricula } from "../../shared/cuadricula.js";
 
 const repo = existsSync(resolve("python")) ? resolve(".") : resolve("..");
@@ -36,7 +37,8 @@ test("HTTP: captura guiada de 12 zonas conserva acomodo hasta el mapa KNN y RF",
     host: "127.0.0.1", puertoHttp, puertoUdp: await puertoLibre(), destinoUdp: "127.0.0.1", zonaHoraria: "America/Costa_Rica" });
   const gateway = new GatewaySimulado(); gateway.sesion = 1;
   await gateway.iniciar(gestor.configuracion.puertoUdp);
-  const app = crearApp(gestor);
+  const seguridad = new RaicesAutorizadas(gestor.configuracion.directorioDatos);
+  const app = crearApp(gestor, gestor.gateway, seguridad);
   const servidor = app.listen(0, "127.0.0.1");
   await new Promise<void>(r => servidor.on("listening", r));
   const url = `http://127.0.0.1:${(servidor.address() as { port: number }).port}`;
@@ -60,6 +62,14 @@ test("HTTP: captura guiada de 12 zonas conserva acomodo hasta el mapa KNN y RF",
     const inicio = await post("/api/lecturas", solicitud); assert.equal(inicio.status, 202);
     const captura = await inicio.json() as { id: string };
     await esperar(`/api/lecturas/${captura.id}`, c => c.estado === "grabando");
+    const temporal = seguridad.agregar(gestor.configuracion.directorioDatos);
+    const { token } = await (await fetch(url + "/api/admin/sesion")).json() as { token: string };
+    assert.equal((await fetch(`${url}/api/admin/raices/${temporal.id}`, {
+      method: "DELETE", headers: { "X-Heatmap-Admin": token },
+    })).status, 204);
+    assert.equal(gestor.obtener(captura.id).estado, "grabando");
+    const rutas = await (await fetch(url + "/api/rutas-preferidas")).json() as { recoleccionSalida: string };
+    assert.equal(rutas.recoleccionSalida, gestor.configuracion.directorioDatos);
     assert.equal((await post("/api/lecturas", { ...solicitud, cuadricula: { filas: 4, columnas: 3, zonas: generarZonas(4, 3) } })).status, 409);
     const macs = ["10:06:1C:D5:95:04", "90:15:06:5A:30:D0", "10:06:1C:D5:95:8C", "10:06:1C:D4:8F:C4"];
     const lote = macs.map((mac_torre, i) => ({ sesion_gateway: 1, tiempo_gateway_recepcion_ms: 500,

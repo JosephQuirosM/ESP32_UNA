@@ -7,7 +7,7 @@ import { seleccionarCsv } from "./selectorCarpeta.js";
 import { ErrorPeticion, type Configuracion } from "./gestor.js";
 import { recordarRutas } from "./rutasPreferidas.js";
 import type { RaicesAutorizadas } from "./raicesAutorizadas.js";
-import { peticionLocal } from "./accesoLocal.js";
+import { puedeUsarRutasLocales, restriccionesDeRutas } from "./accesoLocal.js";
 
 export function rutasEntrenamiento(config: Configuracion, seguridad?: RaicesAutorizadas) {
   const router = Router();
@@ -41,18 +41,19 @@ export function rutasEntrenamiento(config: Configuracion, seguridad?: RaicesAuto
     });
   }
   router.post("/seleccionar-csv", async (req, res) => {
-    if (!peticionLocal(req)) throw new ErrorPeticion(403, "El selector nativo sólo se abre desde esta PC.");
+    if (!puedeUsarRutasLocales(req)) throw new ErrorPeticion(403, "El selector nativo sólo se abre desde esta PC.");
     if (selectorAbierto) throw new ErrorPeticion(409, "Ya hay un selector de archivos abierto.");
     selectorAbierto = true;
-    try { const ruta = await seleccionarCsv(config.raiz); if (ruta) seguridad?.permitir(ruta, "archivo"); res.json({ ruta }); }
+    try { res.json({ ruta: await seleccionarCsv(config.raiz) }); }
     finally { selectorAbierto = false; }
   });
   router.post("/inspeccionar", async (req, res) => {
     const archivo = await entrada(req.body?.entrada);
-    seguridad?.permitir(archivo, "archivo");
+    restriccionesDeRutas(req, seguridad)?.permitir(archivo, "archivo");
     res.json({ entrada: archivo, ...await inspeccionar(archivo) });
   });
   router.post("/", async (req, res) => {
+    const restricciones = restriccionesDeRutas(req, seguridad);
     // Python publica el resultado antes de terminar de cerrar el proceso.
     // Una tarea completada ya permite iniciar la siguiente sin un 409 transitorio.
     const anterior = ocupado;
@@ -71,9 +72,9 @@ export function rutasEntrenamiento(config: Configuracion, seguridad?: RaicesAuto
     let directorioSalida: string;
     try { directorioSalida = await realpath(ruta(req.body.directorioSalida)); if (!(await stat(directorioSalida)).isDirectory()) throw new Error(); }
     catch { throw new ErrorPeticion(400, "La carpeta de salida no existe o no es accesible."); }
-    seguridad?.permitir(directorioSalida, "carpeta");
+    restricciones?.permitir(directorioSalida, "carpeta");
     const archivo = await entrada(req.body.entrada);
-    seguridad?.permitir(archivo, "archivo");
+    restricciones?.permitir(archivo, "archivo");
     const entero = (clave: string, min: number, max: number) => { if (!Number.isSafeInteger(p[clave]) || p[clave] < min || p[clave] > max) throw new ErrorPeticion(400, `Parámetro ${clave}: debe ser un entero entre ${min} y ${max}.`); };
     if (algoritmo === "knn") {
       entero("k", 1, 1000000);
@@ -119,8 +120,9 @@ export function rutasEntrenamiento(config: Configuracion, seguridad?: RaicesAuto
       catch { estado = { estado: "error", error: "El proceso de entrenamiento ya no está disponible. Puedes volver a iniciarlo." }; }
     }
     const solicitud = JSON.parse(await readFile(join(carpeta, "solicitud.json"), "utf8"));
-    seguridad?.permitir(solicitud.entrada, "archivo");
-    seguridad?.permitir(solicitud.directorioSalida, "carpeta");
+    const restricciones = restriccionesDeRutas(req, seguridad);
+    restricciones?.permitir(solicitud.entrada, "archivo");
+    restricciones?.permitir(solicitud.directorioSalida, "carpeta");
     res.json({ id: req.params.id, ...solicitud, ...estado, descarga: `/api/entrenamiento/${req.params.id}/modelo`, resumenDescarga: `/api/entrenamiento/${req.params.id}/resumen` });
   });
   router.get("/:id/:tipo", async (req, res) => {
@@ -132,10 +134,11 @@ export function rutasEntrenamiento(config: Configuracion, seguridad?: RaicesAuto
     try { estado = JSON.parse(await readFile(join(carpeta, "estado.json"), "utf8")); }
     catch { throw new ErrorPeticion(404, "Entrenamiento no encontrado."); }
     if (estado.estado !== "completado") throw new ErrorPeticion(409, "El modelo todavía no está listo.");
-    if (seguridad) {
+    const restricciones = restriccionesDeRutas(req, seguridad);
+    if (restricciones) {
       const solicitud = JSON.parse(await readFile(join(carpeta, "solicitud.json"), "utf8"));
-      seguridad.permitir(solicitud.entrada, "archivo");
-      seguridad.permitir(solicitud.directorioSalida, "carpeta");
+      restricciones.permitir(solicitud.entrada, "archivo");
+      restricciones.permitir(solicitud.directorioSalida, "carpeta");
     }
     res.download(join(carpeta, nombre), basename(req.params.tipo === "modelo" ? estado.rutaModelo : estado.rutaResumen));
   });

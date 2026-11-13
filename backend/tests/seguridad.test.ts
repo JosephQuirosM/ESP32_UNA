@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { request } from "node:http";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,7 +48,6 @@ test("La administración de raíces exige sesión local y el explorador no sale 
   writeFileSync(join(fuera, "externo.joblib"), "modelo\n");
   const gestor = new GestorLecturas({ raiz: base, directorioDatos: join(base, "estado"), python: "python3", host: "127.0.0.1", puertoHttp: 8080, puertoUdp: 0, destinoUdp: "127.0.0.1", zonaHoraria: "America/Costa_Rica" });
   const seguridad = new RaicesAutorizadas(gestor.configuracion.directorioDatos);
-  gestor.seguridad = seguridad;
   const server = crearApp(gestor, gestor.gateway, seguridad).listen(0, "127.0.0.1");
   await new Promise<void>(resolve => server.once("listening", resolve));
   const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -67,11 +67,24 @@ test("La administración de raíces exige sesión local y el explorador no sale 
     assert.equal((await fetch(`${url}/api/archivos/descargar?ruta=${encodeURIComponent(join(fuera, "externo.csv"))}`)).status, 403);
     assert.equal((await fetch(`${url}/api/archivos/carpetas`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raiz: raiz.id, ruta: "../fuera", nombre: "escape" }) })).status, 403);
     assert.equal((await fetch(`${url}/api/archivos?raiz=${raiz.id}&ruta=..%2Ffuera`)).status, 403);
-    const json = { "Content-Type": "application/json" };
-    assert.equal((await fetch(`${url}/api/entrenamiento/inspeccionar`, { method: "POST", headers: json, body: JSON.stringify({ entrada: join(fuera, "externo.csv") }) })).status, 403);
-    assert.equal((await fetch(`${url}/api/lecturas`, { method: "POST", headers: json, body: JSON.stringify({ solicitudId: "solicitud-externa", nombreArchivo: "externo", duracionSegundos: 1, directorioSalida: fuera }) })).status, 403);
-    assert.equal((await fetch(`${url}/api/preparacion`, { method: "POST", headers: json, body: JSON.stringify({ archivos: [{ nombre: "zona.csv", zona: 1, contenido: "rssi\n-40\n" }], directorioSalida: fuera }) })).status, 403);
-    assert.equal((await fetch(`${url}/api/mapas`, { method: "POST", headers: json, body: JSON.stringify({ entradas: [join(autorizada, "lecturas.csv")], modelo: join(fuera, "externo.joblib"), nombre: "prueba", ventana: 1, directorioSalida: autorizada }) })).status, 403);
+    const casos = [
+      ["/api/entrenamiento/inspeccionar", { entrada: join(fuera, "externo.csv") }],
+      ["/api/lecturas", { solicitudId: "solicitud-externa", nombreArchivo: "externo", duracionSegundos: 1, directorioSalida: fuera }],
+      ["/api/preparacion", { archivos: [{ nombre: "zona.csv", zona: 1, contenido: "rssi\n-40\n" }], directorioSalida: fuera }],
+      ["/api/mapas", { entradas: [join(autorizada, "lecturas.csv")], modelo: join(fuera, "externo.joblib"), nombre: "prueba", ventana: 1, directorioSalida: autorizada }],
+    ] as const;
+    for (const [ruta, carga] of casos) {
+      const estado = await new Promise<number | undefined>((resolve, reject) => {
+        const req = request(url + ruta, { method: "POST",
+          headers: { Host: "192.168.4.1:8000", "Content-Type": "application/json" } }, res => {
+          res.resume();
+          res.on("end", () => resolve(res.statusCode));
+        });
+        req.on("error", reject);
+        req.end(JSON.stringify(carga));
+      });
+      assert.equal(estado, 403, ruta);
+    }
     assert.equal((await fetch(`${url}/api/admin/raices/${raiz.id}`, { method: "DELETE", headers: { "X-Heatmap-Admin": sesion.token } })).status, 204);
     assert.equal((await fetch(`${url}/api/archivos?raiz=${raiz.id}`)).status, 404);
     assert.equal((await fetch(`${url}/api/archivos/descargar?ruta=${encodeURIComponent(join(autorizada, "lecturas.csv"))}`)).status, 403);

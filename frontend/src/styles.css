@@ -1403,7 +1403,7 @@ a.boton {
 .preparacion-titulo h2 { font-size: 16px; }
 .preparacion-titulo p, .preparacion-salida > p { font-size: 12px; color: var(--muted); }
 .preparacion-previa { padding: 12px; background: #eff4ff; border-radius: 9px; display: grid; gap: 8px; font-size: 12px; min-width: 0; }
-.preparacion-previa strong { color: #003fb1; display: flex; gap: 6px; align-items: center; background: white; padding: 8px; border-radius: 5px; overflow-wrap: anywhere; }
+.preparacion-previa input { width: 100%; min-width: 0; background: white; }
 .preparacion-destino code { display: block; margin-top: 6px; overflow-wrap: anywhere; }
 .preparacion-salida > .boton { width: 100%; min-height: 48px; }
 .preparacion-salida .preparacion-pendiente { color: #895600; }

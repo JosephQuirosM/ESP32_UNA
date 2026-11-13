@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, rm, realpath, stat, open, copyFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, resolve, isAbsolute } from "node:path";
+import { basename, join, resolve, isAbsolute } from "node:path";
 import { Router, json } from "express";
 import type { Configuracion } from "./gestor.js";
 import { ErrorPeticion } from "./gestor.js";
@@ -11,12 +11,24 @@ import { seleccionarCarpeta } from "./selectorCarpeta.js";
 import { recordarRutas } from "./rutasPreferidas.js";
 import type { RaicesAutorizadas } from "./raicesAutorizadas.js";
 import { writeFile, readFile } from "node:fs/promises";
-import { peticionLocal } from "./accesoLocal.js";
+import { puedeUsarRutasLocales, restriccionesDeRutas } from "./accesoLocal.js";
+
+const NOMBRE_PREDETERMINADO = "dataset_etiquetado";
+
+function nombreDataset(valor: unknown): string {
+  if (valor === undefined) return NOMBRE_PREDETERMINADO;
+  if (typeof valor !== "string") throw new ErrorPeticion(400, "Indica un nombre de archivo válido.");
+  const nombre = valor.trim().replace(/\.csv$/i, "");
+  if (!/^[\p{L}\p{N}][\p{L}\p{M}\p{N} ._-]{0,79}$/u.test(nombre) || /[. ]$/.test(nombre) ||
+      /^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³]) *(?:\.|$)/i.test(nombre))
+    throw new ErrorPeticion(400, "Usa entre 1 y 80 caracteres para el nombre, empezando por una letra o un número. Puedes usar espacios, guiones, guiones bajos y puntos interiores.");
+  return nombre;
+}
 
 /** Reserva nombres libres sin sobrescribir resultados de preparaciones anteriores. */
-async function exportar(carpeta: string, origen: string): Promise<string> {
+async function exportar(carpeta: string, origen: string, nombreBase: string): Promise<string> {
   for (let numero = 1; numero < 10000; numero++) {
-    const nombre = `dataset_etiquetado${numero === 1 ? "" : `_${numero}`}`;
+    const nombre = `${nombreBase}${numero === 1 ? "" : `_${numero}`}`;
     const csv = join(carpeta, `${nombre}.csv`), json = join(carpeta, `${nombre}.json`);
     try { await (await open(csv, "wx")).close(); }
     catch (e) { if ((e as NodeJS.ErrnoException).code === "EEXIST") continue; throw e; }
@@ -45,18 +57,21 @@ export function rutasPreparacion(config: Configuracion, seguridad?: RaicesAutori
     return isAbsolute(valor.trim()) ? valor.trim() : resolve(config.raiz, valor.trim());
   }
   let selectorAbierto = false;
-  router.post("/seleccionar-carpeta", json({ limit: "2kb" }), async (req, res) => {
-    if (!peticionLocal(req)) throw new ErrorPeticion(403, "La selección de carpetas está disponible desde esta PC.");
+  router.post(["/seleccionar-carpeta", "/jugadores/seleccionar-carpeta"], json({ limit: "2kb" }), async (req, res) => {
+    if (!puedeUsarRutasLocales(req)) throw new ErrorPeticion(403, "La selección de carpetas está disponible desde esta PC.");
     if (selectorAbierto) throw new ErrorPeticion(409, "Ya hay un selector de carpetas abierto en esta PC.");
     const inicial = req.body?.ruta ? rutaElegida(req.body.ruta) : config.raiz;
     try {
       if (!(await stat(inicial)).isDirectory()) throw new Error();
     } catch { throw new ErrorPeticion(400, "La carpeta inicial no existe. Corrige la ruta o déjala vacía."); }
     selectorAbierto = true;
-    try { const ruta = await seleccionarCarpeta(inicial); if (ruta) seguridad?.permitir(ruta, "carpeta"); res.json({ ruta }); }
-    finally { selectorAbierto = false; }
+    try {
+      res.json({ ruta: await seleccionarCarpeta(inicial) });
+    } finally { selectorAbierto = false; }
   });
   router.post("/", json({ limit: "32mb" }), async (req, res) => {
+    const restricciones = restriccionesDeRutas(req, seguridad);
+    const nombreSalida = nombreDataset(req.body?.nombreSalida);
     let cuadricula: GeometriaCuadricula | undefined;
     if (req.body?.cuadricula !== undefined) {
       try { cuadricula = validarCuadricula(req.body.cuadricula); }
@@ -73,11 +88,13 @@ export function rutasPreparacion(config: Configuracion, seguridad?: RaicesAutori
         throw new ErrorPeticion(400, "Cada CSV necesita una zona positiva.");
       let nombre: string, contenido: string;
       if (a.ruta !== undefined) {
-        if (!seguridad || typeof a.ruta !== "string" || a.contenido !== undefined || a.nombre !== undefined)
-          throw new ErrorPeticion(400, "Selecciona un CSV de una carpeta autorizada.");
-        const ruta = seguridad.permitir(a.ruta, "archivo");
+        if ((!restricciones && !puedeUsarRutasLocales(req)) || typeof a.ruta !== "string" || a.contenido !== undefined || a.nombre !== undefined)
+          throw new ErrorPeticion(400, "Selecciona una ruta de CSV válida.");
+        const ruta = restricciones ? restricciones.permitir(a.ruta, "archivo") : rutaElegida(a.ruta);
         nombre = ruta.split(/[\\/]/).at(-1) ?? "";
-        const tamano = (await stat(ruta)).size;
+        const info = await stat(ruta).catch(() => null);
+        if (!info?.isFile()) throw new ErrorPeticion(400, "No se puede leer el CSV seleccionado.");
+        const tamano = info.size;
         if (!tamano || bytes + tamano > 28 * 1024 * 1024)
           throw new ErrorPeticion(400, "El límite es de 28 MB entre todos los CSV.");
         contenido = await readFile(ruta, "utf8");
@@ -101,7 +118,7 @@ export function rutasPreparacion(config: Configuracion, seguridad?: RaicesAutori
       destino = await realpath(destino);
       if (!(await stat(destino)).isDirectory()) throw new Error();
     } catch { throw new ErrorPeticion(400, "La carpeta de salida no existe o no es accesible."); }
-    seguridad?.permitir(destino, "carpeta");
+    restricciones?.permitir(destino, "carpeta");
     const id = randomUUID();
     const carpeta = join(base, id);
     await mkdir(carpeta, { recursive: true });
@@ -124,11 +141,11 @@ export function rutasPreparacion(config: Configuracion, seguridad?: RaicesAutori
         child.stdin.end(JSON.stringify({ archivos, cuadricula }));
       });
       let rutaSalida: string;
-      try { rutaSalida = await exportar(destino, carpeta); }
+      try { rutaSalida = await exportar(destino, carpeta, nombreSalida); }
       catch { throw new ErrorPeticion(400, "No se pudo guardar en la carpeta elegida. Revisa los permisos de escritura."); }
       await writeFile(join(carpeta, "autorizacion.json"), JSON.stringify({ rutaSalida }));
       try { recordarRutas(config.directorioDatos, { preparacionSalida: destino }); } catch (error) { console.error("No se pudo recordar la carpeta de preparación:", error); }
-      res.status(201).json({ rutaSalida, id, nombre: "dataset_etiquetado.csv", descarga: `/api/preparacion/${id}/csv`, resumenDescarga: `/api/preparacion/${id}/resumen`, ...JSON.parse(resultado) });
+      res.status(201).json({ rutaSalida, id, nombre: basename(rutaSalida), descarga: `/api/preparacion/${id}/csv`, resumenDescarga: `/api/preparacion/${id}/resumen`, ...JSON.parse(resultado) });
     } catch (error) {
       await rm(carpeta, { recursive: true, force: true });
       throw error;
@@ -138,16 +155,20 @@ export function rutasPreparacion(config: Configuracion, seguridad?: RaicesAutori
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(req.params.id) ||
         !["csv", "resumen"].includes(req.params.tipo))
       throw new ErrorPeticion(404, "Archivo no encontrado.");
-    const nombre = req.params.tipo === "csv" ? "dataset_etiquetado.csv" : "dataset_etiquetado.json";
-    const ruta = join(base, req.params.id, nombre);
-    if (seguridad) {
-      let salida: string;
-      try { salida = JSON.parse(await readFile(join(base, req.params.id, "autorizacion.json"), "utf8")).rutaSalida; }
-      catch { throw new ErrorPeticion(403, "El resultado antiguo no tiene una carpeta autorizada."); }
-      seguridad.permitir(salida, "archivo");
+    const extension = req.params.tipo === "csv" ? ".csv" : ".json";
+    const carpeta = join(base, req.params.id);
+    const ruta = join(carpeta, NOMBRE_PREDETERMINADO + extension);
+    let salida: string | undefined;
+    try {
+      const rutaSalida = JSON.parse(await readFile(join(carpeta, "autorizacion.json"), "utf8")).rutaSalida;
+      if (typeof rutaSalida === "string") salida = rutaSalida;
     }
+    catch { /* Los resultados antiguos pueden no tener metadatos de exportación. */ }
+    const restricciones = restriccionesDeRutas(req, seguridad);
+    if (restricciones && !salida) throw new ErrorPeticion(403, "El resultado antiguo no tiene una carpeta autorizada.");
+    if (salida) restricciones?.permitir(salida, "archivo");
     if (!existsSync(ruta)) throw new ErrorPeticion(404, "Archivo no encontrado.");
-    res.download(ruta, nombre);
+    res.download(ruta, (salida ? basename(salida, ".csv") : NOMBRE_PREDETERMINADO) + extension);
   });
   return router;
 }

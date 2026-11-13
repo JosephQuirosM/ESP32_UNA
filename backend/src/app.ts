@@ -11,7 +11,7 @@ import type { DescubridorGateway } from "./gateway.js";
 import { leerRutasPreferidas } from "./rutasPreferidas.js";
 import type { RaicesAutorizadas } from "./raicesAutorizadas.js";
 import { seleccionarCarpeta } from "./selectorCarpeta.js";
-import { peticionLocal } from "./accesoLocal.js";
+import { puedeUsarRutasLocales, restriccionesDeRutas } from "./accesoLocal.js";
 import { AccesoRemoto } from "./accesoRemoto.js";
 
 /** Expone el control local de capturas y el frontend compilado desde el mismo origen. */
@@ -22,14 +22,11 @@ export function crearApp(gestor: GestorLecturas, gateway: DescubridorGateway = g
   if (acceso) app.use(acceso.middleware());
   const tokenAdmin = randomBytes(32).toString("hex");
   function exigirAdmin(req: express.Request) {
-    if (!peticionLocal(req)) throw new ErrorPeticion(403, "La configuración sólo está disponible en esta PC.");
-    const host = req.headers.host?.split(":")[0];
-    if (host !== "localhost" && host !== "127.0.0.1" && host !== "[::1]") throw new ErrorPeticion(403, "Abre el panel con localhost en esta PC.");
+    if (!puedeUsarRutasLocales(req)) throw new ErrorPeticion(403, "Abre el panel con localhost en esta PC.");
     if (req.method !== "GET") {
       const recibido = req.header("X-Heatmap-Admin") ?? "";
       const a = Buffer.from(recibido), b = Buffer.from(tokenAdmin);
       if (a.length !== b.length || !timingSafeEqual(a, b)) throw new ErrorPeticion(403, "Sesión de administración inválida.");
-      if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) throw new ErrorPeticion(403, "Origen de administración inválido.");
     }
   }
   app.get("/api/admin/sesion", (req, res) => { exigirAdmin(req); res.setHeader("Cache-Control", "no-store").json({ token: tokenAdmin, codigoAcceso: acceso?.codigo ?? null, raices: seguridad?.listar() ?? [] }); });
@@ -43,11 +40,7 @@ export function crearApp(gestor: GestorLecturas, gateway: DescubridorGateway = g
     exigirAdmin(req);
     if (!seguridad) throw new ErrorPeticion(503, "La protección de carpetas no está activa.");
     seguridad.quitar(req.params.id);
-    const activa = gestor.actual();
-    if (activa) {
-      try { seguridad.permitir(activa.directorioSalida ?? gestor.configuracion.directorioDatos, "carpeta"); }
-      catch { gestor.detener(activa.id); }
-    }
+    gestor.revocarCapturaFueraDeRaices(seguridad);
     res.status(204).end();
   });
   app.get("/api/archivos/raices", (_req, res) => res.json(seguridad?.listar() ?? []));
@@ -71,23 +64,25 @@ export function crearApp(gestor: GestorLecturas, gateway: DescubridorGateway = g
   app.use(express.json({ limit: "16kb" }));
   app.get("/api/rutas-preferidas", (peticion, respuesta) => {
     const preferencias = leerRutasPreferidas(gestor.configuracion.directorioDatos);
-    const visibles = seguridad ? Object.fromEntries(Object.entries(preferencias).flatMap(([clave, valor]) => {
+    const selectorLocal = puedeUsarRutasLocales(peticion);
+    respuesta.setHeader("Cache-Control", "no-store");
+    const restricciones = restriccionesDeRutas(peticion, seguridad);
+    const visibles = restricciones ? Object.fromEntries(Object.entries(preferencias).flatMap<[string, string | string[]]>(([clave, valor]) => {
       try {
-        if (Array.isArray(valor)) return [valor.every(r => seguridad.permitir(r, "archivo")) ? [clave, valor] : []];
-        return [[clave, seguridad.permitir(valor)]];
+        if (Array.isArray(valor)) return valor.every(r => restricciones.permitir(r, "archivo")) ? [[clave, valor]] : [];
+        return [[clave, restricciones.permitir(valor)]];
       } catch { return []; }
-    }).filter((v) => v.length)) : preferencias;
-    respuesta.json({ ...visibles, selectorLocal: peticionLocal(peticion) });
+    })) : preferencias;
+    respuesta.json({ ...visibles, selectorLocal });
   });
-  const visible = (captura: { directorioSalida?: string }) => {
-    if (!seguridad) return true;
-    try { seguridad.permitir(captura.directorioSalida ?? gestor.configuracion.directorioDatos, "carpeta"); return true; }
+  const visible = (peticion: express.Request, captura: { directorioSalida?: string }) => {
+    try { restriccionesDeRutas(peticion, seguridad)?.permitir(captura.directorioSalida ?? gestor.configuracion.directorioDatos, "carpeta"); return true; }
     catch { return false; }
   };
-  app.get("/api/estado", (_peticion, respuesta) => {
+  app.get("/api/estado", (peticion, respuesta) => {
     const actual = gestor.actual();
     respuesta.json({
-      actual: actual && visible(actual) ? gestor.presentar(actual) : null,
+      actual: actual && visible(peticion, actual) ? gestor.presentar(actual) : null,
       gateway: gateway?.estado() ?? { escuchando: false, error: null, dispositivos: [] },
       receptor: {
         host: gestor.configuracion.host,
@@ -100,23 +95,23 @@ export function crearApp(gestor: GestorLecturas, gateway: DescubridorGateway = g
   app.get("/api/gateway", (_peticion, respuesta) =>
     respuesta.json(gateway?.estado() ?? { escuchando: false, error: null, dispositivos: [] }),
   );
-  app.get("/api/lecturas", (_peticion, respuesta) =>
-    respuesta.json(gestor.listar().filter(visible).map((captura) => gestor.presentar(captura))),
+  app.get("/api/lecturas", (peticion, respuesta) =>
+    respuesta.json(gestor.listar().filter(captura => visible(peticion, captura)).map((captura) => gestor.presentar(captura))),
   );
-  app.get("/api/lecturas/actual", (_peticion, respuesta) => {
+  app.get("/api/lecturas/actual", (peticion, respuesta) => {
     const actual = gestor.actual();
-    respuesta.json(actual && visible(actual) ? gestor.presentar(actual) : null);
+    respuesta.json(actual && visible(peticion, actual) ? gestor.presentar(actual) : null);
   });
-  app.get("/api/lecturas/solicitud/:id", (peticion, respuesta) => { const captura = gestor.porSolicitud(peticion.params.id); if (!visible(captura)) throw new ErrorPeticion(403, "Captura fuera de las carpetas autorizadas."); respuesta.json(captura); });
+  app.get("/api/lecturas/solicitud/:id", (peticion, respuesta) => { const captura = gestor.porSolicitud(peticion.params.id); if (!visible(peticion, captura)) throw new ErrorPeticion(403, "Captura fuera de las carpetas autorizadas."); respuesta.json(captura); });
   app.post("/api/lecturas", (peticion, respuesta) =>
-    respuesta.status(202).json(gestor.iniciar(peticion.body)),
+    respuesta.status(202).json(gestor.iniciar(peticion.body, restriccionesDeRutas(peticion, seguridad))),
   );
-  app.get("/api/lecturas/:id", (peticion, respuesta) => { const captura = gestor.obtener(peticion.params.id); if (!visible(captura)) throw new ErrorPeticion(403, "Captura fuera de las carpetas autorizadas."); respuesta.json(captura); });
-  app.post("/api/lecturas/:id/detener", (peticion, respuesta) => { const captura = gestor.obtener(peticion.params.id); if (!visible(captura)) throw new ErrorPeticion(403, "Captura fuera de las carpetas autorizadas."); respuesta.json(gestor.detener(peticion.params.id)); });
+  app.get("/api/lecturas/:id", (peticion, respuesta) => { const captura = gestor.obtener(peticion.params.id); if (!visible(peticion, captura)) throw new ErrorPeticion(403, "Captura fuera de las carpetas autorizadas."); respuesta.json(captura); });
+  app.post("/api/lecturas/:id/detener", (peticion, respuesta) => { const captura = gestor.obtener(peticion.params.id); if (!visible(peticion, captura)) throw new ErrorPeticion(403, "Captura fuera de las carpetas autorizadas."); respuesta.json(gestor.detener(peticion.params.id)); });
   app.get("/api/lecturas/:id/archivo", (peticion, respuesta) => {
     const archivo = gestor.rutaDescarga(peticion.params.id);
-    seguridad?.permitir(archivo.ruta, "archivo");
-    respuesta.download(archivo.ruta, archivo.nombre);
+    const ruta = restriccionesDeRutas(peticion, seguridad)?.permitir(archivo.ruta, "archivo") ?? archivo.ruta;
+    respuesta.download(ruta, archivo.nombre);
   });
   app.use("/api", (_peticion, respuesta) =>
     respuesta.status(404).json({ error: "Operación no encontrada." }),

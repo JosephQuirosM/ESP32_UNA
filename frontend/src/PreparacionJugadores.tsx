@@ -100,9 +100,7 @@ export default function PreparacionJugadores() {
   async function seleccionarSalida() {
     setOcupacion("salida"); setError("");
     try {
-      const respuesta = await fetch("/api/preparacion/seleccionar-carpeta", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ruta: directorioSalida }) });
-      const datos = await respuesta.json();
-      if (!respuesta.ok) throw new Error(datos.error ?? "No se pudo seleccionar la carpeta.");
+      const datos = await pedir<{ ruta: string | null }>("/seleccionar-carpeta", { ruta: directorioSalida });
       if (datos.ruta) setDirectorioSalida(datos.ruta);
     } catch (e) { setError(e instanceof Error ? e.message : "No se pudo seleccionar la carpeta."); }
     finally { setOcupacion(""); }
