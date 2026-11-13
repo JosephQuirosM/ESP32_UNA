@@ -454,9 +454,6 @@ export default function Lecturas({
         <div className="layout-captura">
           <section className="tarjeta configuracion">
             <h2>Configura tu recolección</h2>
-            <p className="texto-suave">
-              Cada captura crea un CSV independiente en esta PC.
-            </p>
             <div
               className="selector-modo"
               role="group"
@@ -549,13 +546,13 @@ export default function Lecturas({
                 id="nombre"
                 value={sesion.nombre}
                 maxLength={84}
-                placeholder="Ej. laboratorio_piso2"
+                placeholder="Ej. Grabación en escampado"
                 onChange={(evento) =>
                   actualizar({ nombre: evento.target.value })
                 }
               />
               <small>
-                Letras, números, espacios y guiones. No escribas una ruta.
+                Letras, números, espacios y guiones.
               </small>
               {sesion.modo !== "juego" && <><label htmlFor="duracion">
                 {sesion.modo === "guiado" ? "Duración por zona" : "Duración"}
@@ -575,9 +572,7 @@ export default function Lecturas({
                 />
                 <span>segundos</span>
               </div>
-              <small>
-                El receptor controla el tiempo aunque cierres el navegador.
-              </small></>}
+              </>}
               <label htmlFor="directorio-recoleccion">Carpeta para guardar los CSV en la PC del backend</label>
               <div className="preparacion-elegir-ruta">
                 <input id="directorio-recoleccion" value={sesion.directorioSalida}

@@ -246,7 +246,7 @@ class ManejadorRegistros(BaseHTTPRequestHandler):
 
 
 class ReceptorCaptura:
-    """Reabre HTTP en el hotspot sin cerrar el escritor ni cambiar de captura."""
+    """Administra el listener HTTP durante la captura del escritor CSV."""
 
     def __init__(self, escritor: EscritorCsv, captura_id: str, puerto: int):
         self.escritor, self.captura_id, self.puerto = escritor, captura_id, puerto
@@ -272,7 +272,7 @@ class ReceptorCaptura:
         self.host = None
 
     def cambiar_red(self, host: str | None) -> bool:
-        """El host procede de la detección del hotspot, nunca de un cliente HTTP."""
+        """Enlaza la dirección seleccionada por el proceso de captura."""
         with self._mutex:
             if self._cerrado:
                 return False
@@ -282,8 +282,6 @@ class ReceptorCaptura:
             if not host:
                 self.error = "Hotspot no disponible; conservando captura y esperando reconexión"
                 return False
-            if host in ("0.0.0.0", "::"):
-                raise ValueError("El receptor no puede escuchar en todas las interfaces")
             try:
                 servidor = ServidorRegistros((host, self.puerto), self.escritor, self.captura_id)
             except OSError as error:
@@ -346,9 +344,12 @@ def argumentos() -> argparse.Namespace:
         parser.error("--sin-anuncio-udp requiere --esperar-inicio para recibir autorización del backend")
     if args.duracion is not None and (not 0 < args.duracion <= 86400):
         parser.error("la duración debe ser positiva y no superar 86400 segundos")
-    if args.host in ("0.0.0.0", "::"):
+    if args.sin_anuncio_udp:
+        if not args.host or args.host == "::":
+            parser.error("el backend debe indicar una dirección IPv4 para el receptor")
+    elif args.host in ("0.0.0.0", "::"):
         parser.error("el receptor no puede escuchar en todas las interfaces")
-    if args.host not in ("127.0.0.1", "::1"):
+    elif args.host not in ("127.0.0.1", "::1"):
         hotspot = detectar_hotspot()
         if not hotspot or (args.host and args.host != hotspot["ip"]):
             parser.error("no se detecta el hotspot indicado; el receptor sólo puede iniciarse en loopback")
@@ -408,7 +409,7 @@ def main() -> int:
         if not receptor.cambiar_red(args.host):
             raise RuntimeError(receptor.error)
         escritor.iniciar()
-        if args.host not in ("127.0.0.1", "::1"):
+        if not args.sin_anuncio_udp and args.host not in ("127.0.0.1", "::1"):
             def vigilar_red() -> None:
                 while not detener.wait(3):
                     actual = detectar_hotspot()

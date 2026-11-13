@@ -95,7 +95,6 @@ export function crearApp(gestor: GestorLecturas, gateway: DescubridorGateway = g
         destinoUdp: gestor.configuracion.destinoUdp,
         puertoUdp: gestor.configuracion.puertoUdp,
       },
-      redPrivada: { lista: gestor.redLista, mensaje: gestor.estadoRed },
     });
   });
   app.get("/api/gateway", (_peticion, respuesta) =>

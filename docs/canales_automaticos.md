@@ -63,10 +63,10 @@ captura sin pérdidas durante el cambio ni se reconstruyen las lecturas ausentes
   mismo CSV. Al recuperar comunicación, el backend envía una revisión nueva de
   autorización con el mismo UUID, sin crear otro archivo ni reiniciar el reloj.
   El receptor independiente por consola aplica la misma recuperación.
-- **Hotspot ausente o IP cambiada:** el panel remoto y el listener HTTP se cierran
-  temporalmente. El proceso Python y su escritor siguen vivos; el receptor sólo
-  vuelve a escuchar en la dirección que detecte como hotspot autorizado. La
-  administración local continúa disponible.
+- **Hotspot ausente o IP cambiada:** el receptor de la web mantiene su escucha
+  IPv4 y el escritor CSV sigue activo. La recepción se recupera cuando el
+  Gateway vuelve a alcanzar la PC. El panel sigue disponible por las redes
+  activas y la administración local continúa en `localhost`.
 - El tiempo real sigue corriendo, también sin lecturas: el modo Juego sigue
   abierto hasta pulsar Detener; las capturas con duración terminan al cumplir
   su plazo original. No se rellenan los huecos de comunicación.

@@ -467,33 +467,6 @@ main:focus {
 .pasos h3 {
   margin: 16px 0 6px;
 }
-.barra-ayuda {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 16px;
-  background: #e9efff;
-  border-radius: 12px;
-}
-.barra-ayuda > span {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.barra-ayuda svg {
-  color: #003fb1;
-}
-.barra-ayuda > div {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.barra-ayuda .boton {
-  min-height: 38px;
-  font-size: 12px;
-  padding: 8px 12px;
-}
 .volver {
   display: flex;
   align-items: center;
@@ -830,40 +803,6 @@ form small {
 .vacio .boton {
   margin-top: 10px;
 }
-.parametros {
-  margin: 20px 0 0;
-}
-.parametros > div {
-  padding: 14px 0;
-  border-bottom: 1px solid #edf0f5;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  align-items: center;
-}
-.parametros > div:last-child {
-  border: 0;
-}
-.parametros dt {
-  color: var(--muted);
-  font-size: 13px;
-}
-.parametros dd {
-  margin: 0;
-  font-weight: 600;
-  font-size: 13px;
-  text-align: right;
-  overflow-wrap: anywhere;
-}
-.desconectado {
-  text-align: center;
-  padding: 35px 20px;
-  color: #8290a7;
-}
-.desconectado h3 {
-  color: #526079;
-  margin: 12px 0 8px;
-}
 .configuracion > .boton {
   margin-top: 24px;
 }
@@ -1032,9 +971,6 @@ footer > span:first-child {
   .modulo .badge {
     font-size: 9px;
   }
-  .barra-ayuda {
-    flex-wrap: wrap;
-  }
 }
 @media (max-width: 950px) {
   .modulos {
@@ -1173,18 +1109,6 @@ footer > span:first-child {
   .pasos article {
     padding: 20px;
   }
-  .barra-ayuda > div {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-  .barra-ayuda .boton {
-    flex: 1;
-    min-height: 44px;
-  }
-  .barra-ayuda > span {
-    font-size: 13px;
-    align-items: flex-start;
-  }
   .layout-captura {
     grid-template-columns: 1fr;
   }
@@ -1211,9 +1135,6 @@ footer > span:first-child {
   }
   .vacio {
     padding: 40px 22px;
-  }
-  .parametros > div {
-    flex-wrap: wrap;
   }
   .leyenda {
     line-height: 1.7;

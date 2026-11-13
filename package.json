@@ -2,7 +2,7 @@
   "name": "esp32-una",
   "private": true,
   "scripts": {
-    "instalar": "npm install --prefix frontend && npm install --prefix backend",
+    "instalar": "npm install --prefix frontend --include=dev && npm install --prefix backend --include=dev",
     "build": "npm run build --prefix frontend && npm run build --prefix backend",
     "start": "npm start --prefix backend",
     "test:backend": "npm test --prefix backend"

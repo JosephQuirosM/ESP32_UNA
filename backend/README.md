@@ -1,6 +1,6 @@
 # Backend local de captura y análisis
 
-Este backend se ejecuta en la PC de captura junto con Python; el frontend se ejecuta en el navegador de la PC o de un dispositivo conectado al hotspot. La administración escucha en `127.0.0.1:8000`; el panel para dispositivos del hotspot sólo abre `IP_DEL_HOTSPOT:8000` cuando se detecta su interfaz, y exige un código de acceso. Antes de empezar la recolección, la PC anfitriona autoriza una carpeta de trabajo existente para los CSV. En el primer uso no hay una ruta preseleccionada. El móvil puede explorar las carpetas autorizadas; el selector nativo sólo está disponible en la PC anfitriona. El Gateway se conecta al hotspot Wi-Fi de la PC y envía registros con movimiento al receptor Python en HTTP 8080. No utiliza servidores remotos.
+Este backend se ejecuta en la PC de captura junto con Python; el frontend se ejecuta en el navegador de la PC o de un dispositivo conectado a una red desde la que pueda alcanzar la PC. El panel escucha en las interfaces IPv4 y exige un código de acceso en las conexiones de red. La administración está disponible desde `localhost:8000`. Antes de empezar la recolección, la PC anfitriona autoriza una carpeta de trabajo existente para los CSV. En el primer uso no hay una ruta preseleccionada. El móvil puede explorar las carpetas autorizadas; el selector nativo sólo está disponible en la PC anfitriona. El Gateway se conecta al hotspot Wi-Fi de la PC y envía registros con movimiento al receptor Python en HTTP 8080. No utiliza servidores remotos.
 
 ## Preparación y uso
 
@@ -21,9 +21,9 @@ Para levantar la aplicación:
 npm start
 ```
 
-En la PC abra `http://localhost:8000`. En el móvil conectado al hotspot abra `http://IP_DE_LA_PC:8000`, usando la IP de la interfaz que crea el hotspot, e introduzca el código mostrado en la consola o en «Carpetas» de la PC. El backend imprime la dirección del hotspot cuando la detecta. En Linux Mint puede consultarla con `nmcli -f GENERAL.DEVICE,GENERAL.CONNECTION,IP4.ADDRESS device show`; busque la conexión del hotspot y omita la máscara `/24` al escribir la URL. Si el móvil no puede acceder, consulte el estado «Red privada» en el panel local; el backend no abre el puerto público si no detecta el hotspot. El backend sirve la interfaz compilada y ejecuta procesos Python cuando se solicita una captura, preparación, inspección de CSV, entrenamiento o generación de mapas. No necesita otro comando por CSV. Después de editar la interfaz o el backend, ejecute `npm run build` nuevamente.
+En la PC abra `http://localhost:8000`. En el móvil abra el enlace «Panel en red» que corresponda a la red que comparte con la PC. Introduzca el código de la consola o de «Carpetas» en el panel local. La recolección web usa los anuncios UDP del Gateway y la confirmación de la orden de captura. El backend sirve la interfaz compilada y ejecuta procesos Python cuando se solicita una captura, preparación, inspección de CSV, entrenamiento o generación de mapas. No necesita otro comando por CSV. Después de editar la interfaz o el backend, ejecute `npm run build` nuevamente.
 
-El usuario debe activar el hotspot de la PC en 2.4 GHz, configurar su nombre y clave en `firmware/Gateway/config.h` y cargar el firmware. El Gateway sigue el canal del hotspot; jugadores y torres lo encuentran automáticamente mediante anuncios ESP-NOW. Para esta función deben actualizarse los tres firmwares; véase [canales automáticos](../docs/canales_automaticos.md). El Gateway calcula el broadcast de su red y anuncia su presencia cada dos segundos. Tras verificar la protección, el backend escucha en UDP 4210 incluso sin una captura, y responde al emisor con la disponibilidad del receptor. No necesita configurar `RECEPTOR_DESTINO_UDP` para usar la web. Encienda el Gateway y luego las torres y el jugador. Los CSV y HTTP siguen en `/v1/registros` y el esquema CSV es v4; el descubrimiento UDP ahora lo inicia el Gateway; el backend no crea el hotspot.
+El usuario debe activar el hotspot de la PC en 2.4 GHz, configurar su nombre y clave en `firmware/Gateway/config.h` y cargar el firmware. El Gateway sigue el canal del hotspot; jugadores y torres lo encuentran automáticamente mediante anuncios ESP-NOW. Para esta función deben actualizarse los tres firmwares; véase [canales automáticos](../docs/canales_automaticos.md). El Gateway calcula el broadcast de su red y anuncia su presencia cada dos segundos. El backend escucha en UDP 4210 desde el arranque, y responde al emisor con la disponibilidad del receptor. No necesita configurar `RECEPTOR_DESTINO_UDP` para usar la web. Encienda el Gateway y luego las torres y el jugador. Los CSV y HTTP siguen en `/v1/registros` y el esquema CSV es v4; el descubrimiento UDP ahora lo inicia el Gateway; el backend no crea el hotspot.
 
 ## Capturas
 
@@ -48,17 +48,17 @@ npm run dev --prefix backend
 npm run dev --prefix frontend
 ```
 
-En desarrollo con dos terminales, abra Vite en `http://localhost:5173` sólo desde la PC. Vite comunica `/api` con el backend local en 8000 y no se expone al hotspot. Para móviles compile el frontend y abra el panel servido por el backend en `http://IP_DEL_HOTSPOT:8000`. Solo un proceso backend debe estar escuchando en ese puerto.
+En desarrollo con dos terminales, abra Vite en `http://localhost:5173` sólo desde la PC. Vite comunica `/api` con el backend local en 8000 y no se expone al hotspot. Para móviles compile el frontend y abra el panel servido por el backend mediante el enlace «Panel en red» de la consola. Solo un proceso backend debe estar escuchando en ese puerto.
 
 ## Configuración del entorno
 
 | Variable | Valor inicial | Uso |
 |---|---|---|
 | `PYTHON_EJECUTABLE` | Python de `.venv` si existe; si no `python` en Windows o `python3` en Linux | Ruta del intérprete. |
-| `HOST_BACKEND` | No se usa | El backend abre loopback y, tras verificar la protección, la IP detectada del hotspot. |
+| `HOST_BACKEND` | No se usa | El backend escucha en todas las interfaces IPv4. |
 | `PUERTO_BACKEND` | `8000` | Puerto de la interfaz y API local. |
 | `DIRECTORIO_DATOS` | `data/raw` del repositorio | Directorio interno para metadatos y trabajos; no preselecciona una carpeta de salida en la interfaz. |
-| `RECEPTOR_HOST` | No se usa en el panel | El receptor de capturas escucha en la IP detectada del hotspot. |
+| `RECEPTOR_HOST` | No se usa en el panel | El receptor web escucha en IPv4 durante la captura y exige su UUID en cada lote. |
 | `RECEPTOR_PUERTO_HTTP` | `8080` | Puerto anunciado al Gateway. |
 | `RECEPTOR_DESTINO_UDP` | `192.168.4.255` | Valor legado; la captura web desactiva los anuncios desde Python y ya no depende de este destino. |
 | `RECEPTOR_PUERTO_UDP` | `4210` | Puerto donde el backend escucha al Gateway; debe coincidir con su config.h. |
@@ -170,9 +170,9 @@ La interfaz comienza con campos de rutas vacíos en una instancia nueva. Despué
 
 ## Acceso desde el hotspot
 
-El usuario activa el hotspot desde Windows o Linux; este proyecto no crea puentes ni modifica su conexión externa. El backend detecta la conexión privada activa sin permisos de administrador, abre el panel en su IP y mantiene `localhost:8000` para la PC. Cada dispositivo remoto debe introducir el código que aparece en la consola y en «Carpetas» de la PC. El código cambia al reiniciar el backend; las sesiones del navegador caducan a las 24 horas. El acceso se comprueba antes de servir el frontend, cualquier API o descarga. Las peticiones de cambio de estado deben provenir del mismo origen.
+El usuario activa el hotspot desde Windows o Linux; este proyecto no crea puentes ni modifica su conexión externa. El backend muestra enlaces para las interfaces IPv4 y mantiene `localhost:8000` para la PC. Cada dispositivo remoto debe introducir el código que aparece en la consola y en «Carpetas» de la PC. El código cambia al reiniciar el backend; las sesiones del navegador caducan a las 24 horas. El acceso se comprueba antes de servir el frontend, cualquier API o descarga. Las peticiones de cambio de estado deben provenir del mismo origen.
 
-En la PC anfitriona abra `http://localhost:8000`, entre a **Carpetas** y autorice una o más carpetas de trabajo existentes. Los dispositivos con código podrán explorar sus archivos, crear subcarpetas inmediatas, descargar archivos y elegir entradas y destinos dentro de ellas. Preparación acepta CSV almacenados en la PC sin pasarlos por el celular. Quitar una raíz revoca nuevas operaciones y descargas. Si el hotspot desaparece o cambia de IP, el acceso remoto se cierra y una captura activa se detiene. El estado aparece en Inicio y Carpetas. Si no se reconoce de forma única un hotspot del sistema, permanece cerrado el acceso remoto. Linux requiere NetworkManager; Windows usa la información de la conexión compartida de Windows.
+En la PC anfitriona abra `http://localhost:8000`, entre a **Carpetas** y autorice una o más carpetas de trabajo existentes. Los dispositivos con código podrán explorar sus archivos, crear subcarpetas inmediatas, descargar archivos y elegir entradas y destinos dentro de ellas. Preparación acepta CSV almacenados en la PC sin pasarlos por el celular. Quitar una raíz revoca nuevas operaciones y descargas. Si el hotspot desaparece o cambia de IP, se suspende la recepción de una captura activa hasta reconectar. El panel sigue accesible por las interfaces IPv4 disponibles.
 
 La API del explorador ofrece `GET /api/archivos/raices`, `GET /api/archivos?raiz=ID&ruta=SUBCARPETA`, `POST /api/archivos/carpetas` con `{raiz, ruta, nombre}` y `GET /api/archivos/descargar?ruta=ARCHIVO`. Todas las rutas se resuelven de nuevo en el servidor y deben permanecer dentro de una raíz vigente. Crear carpetas no permite rutas arbitrarias, sobrescribir archivos ni seguir enlaces simbólicos fuera de la raíz.
 
@@ -182,4 +182,4 @@ Sin reglas de firewall por interfaz, un equipo de otra red que consiga una ruta 
 
 ## Continuidad ante cambios de red
 
-Durante una captura iniciada, la pérdida temporal del hotspot o del Gateway no cierra el CSV. El panel remoto y el receptor HTTP suspenden sus listeners si la red desaparece, y los reabren en la IP del hotspot detectado. Python mantiene el mismo proceso, archivo e inicio. El backend renueva la autorización con una revisión nueva si el Gateway la cerró, venció o reinició, siempre para la misma MAC y UUID. Detener y finalizar por duración siguen siendo definitivos. El reloj corre durante la interrupción y las lecturas perdidas no se reconstruyen. Véase [canales automáticos](../docs/canales_automaticos.md).
+Durante una captura iniciada, la pérdida temporal del hotspot o del Gateway no cierra el CSV. El panel, el control UDP y el receptor HTTP conservan sus listeners IPv4 y quedan disponibles al volver la red. Python mantiene el mismo proceso, archivo e inicio. El backend renueva la autorización con una revisión nueva si el Gateway la cerró, venció o reinició, siempre para la misma MAC y UUID. Detener y finalizar por duración siguen siendo definitivos. El reloj corre durante la interrupción y las lecturas perdidas no se reconstruyen. Véase [canales automáticos](../docs/canales_automaticos.md).

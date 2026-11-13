@@ -2,12 +2,13 @@ $ErrorActionPreference = 'Stop'
 try {
     $ics = New-Object -ComObject HNetCfg.HNetShare
     $privadas = @()
-    foreach ($conexion in $ics.EnumEveryConnection()) {
-        $config = $ics.INetSharingConfigurationForINetConnection($conexion)
+    $adaptadoresActivos = @(Get-NetAdapter -IncludeHidden | Where-Object { $_.Status -eq 'Up' })
+    foreach ($conexion in $ics.EnumEveryConnection) {
+        $config = $ics.INetSharingConfigurationForINetConnection.Invoke($conexion)
         if (-not $config.SharingEnabled -or $config.SharingConnectionType -ne 1) { continue }
-        $propiedades = $ics.NetConnectionProps($conexion)
-        $adaptador = Get-NetAdapter -IncludeHidden | Where-Object {
-            "$($_.InterfaceGuid)".Trim('{}') -ieq "$($propiedades.Guid)".Trim('{}') -and $_.Status -eq 'Up'
+        $propiedades = $ics.NetConnectionProps.Invoke($conexion)
+        $adaptador = $adaptadoresActivos | Where-Object {
+            "$($_.InterfaceGuid)".Trim('{}') -ieq "$($propiedades.Guid)".Trim('{}')
         }
         if (-not $adaptador) { continue }
         $ips = @(Get-NetIPAddress -InterfaceIndex $adaptador.ifIndex -AddressFamily IPv4 | Where-Object {
@@ -16,4 +17,7 @@ try {
         if ($ips.Count -eq 1) { $privadas += [pscustomobject]@{ interfaz = $adaptador.Name; ip = $ips[0].IPAddress } }
     }
     if ($privadas.Count -eq 1) { $privadas[0] | ConvertTo-Json -Compress } else { 'null' }
-} catch { 'null' }
+} catch {
+    [Console]::Error.WriteLine($_.Exception.Message)
+    'null'
+}

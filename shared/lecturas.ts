@@ -28,7 +28,6 @@ export interface Captura extends SolicitudLectura {
 export interface EstadoServidor {
   actual: Captura | null;
   gateway: EstadoGateway;
-  redPrivada?: { lista: boolean; mensaje: string };
   receptor: {
     host: string;
     puertoHttp: number;

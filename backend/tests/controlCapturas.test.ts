@@ -122,10 +122,10 @@ test("Gateway antiguo se rechaza; un reinicio del mismo Gateway recupera el mism
   } finally { await gestor.cerrar(); await gateway.cerrar(); rmSync(carpeta, { recursive: true, force: true }); }
 });
 
-test("Juego continúa en el mismo CSV tras corte, cambio de canal y renovación; detener no se revierte", async () => {
+test("Juego recolecta sin detector y conserva el mismo CSV tras un corte y cambio de canal", async () => {
   const carpeta = mkdtempSync(join(tmpdir(), "control-reconexion-"));
   const gestor = new GestorLecturas({ raiz: resolve(".."), directorioDatos: carpeta, python: "python3",
-    host: "127.0.0.1", puertoHttp: await puertoLibre(), puertoUdp: await puertoLibre(), destinoUdp: "127.0.0.1", zonaHoraria: "America/Costa_Rica" });
+    host: "0.0.0.0", puertoHttp: await puertoLibre(), puertoUdp: await puertoLibre(), destinoUdp: "127.0.0.1", zonaHoraria: "America/Costa_Rica" });
   const gateway = new GatewaySimulado();
   await gateway.iniciar(gestor.configuracion.puertoUdp);
   const post = (id: string, secuencia: number) => fetch(`http://127.0.0.1:${gestor.configuracion.puertoHttp}/v1/registros`, {
@@ -139,10 +139,8 @@ test("Juego continúa en el mismo CSV tras corte, cambio de canal y renovación;
     const revision = gateway.revision;
     const ackViejo = gateway.ultimoAck;
     gateway.online = false; gateway.habilitada = false; gateway.cola = [];
-    gestor.gateway.cerrar(); // El panel suspende UDP al desaparecer el hotspot.
     await new Promise(r => setTimeout(r, 500));
     assert.equal(gestor.obtener(a.id).estado, "grabando");
-    gestor.gateway.iniciar();
     gateway.canal = 11; gateway.online = true;
     await esperar(() => gateway.revision > revision && gateway.habilitada, Boolean);
     gateway.enviar(ackViejo); // Un ACK de la autorización anterior no reinicia el reloj.

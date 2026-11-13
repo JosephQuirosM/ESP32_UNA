@@ -27,10 +27,10 @@ import MapasCalor from "./MapasCalor";
 import CarpetasAutorizadas from "./CarpetasAutorizadas";
 import { useServidor } from "./useServidor";
 
-type Pagina = "inicio" | "captura" | "gateway" | "datasets" | "preparacion" | "entrenamiento" | "mapas" | "carpetas" | "ayuda";
+type Pagina = "inicio" | "captura" | "datasets" | "preparacion" | "entrenamiento" | "mapas" | "carpetas" | "ayuda";
 function paginaDesdeUrl(): Pagina {
   const nombre = window.location.hash.slice(1);
-  return ["inicio", "captura", "gateway", "datasets", "preparacion", "entrenamiento", "mapas", "carpetas", "ayuda"].includes(nombre)
+  return ["inicio", "captura", "datasets", "preparacion", "entrenamiento", "mapas", "carpetas", "ayuda"].includes(nombre)
     ? nombre as Pagina : "inicio";
 }
 const NAVEGACION: { pagina: Pagina; titulo: string; icono: typeof Grid3X3 }[] =
@@ -40,7 +40,6 @@ const NAVEGACION: { pagina: Pagina; titulo: string; icono: typeof Grid3X3 }[] =
     { pagina: "preparacion", titulo: "Preparación", icono: Filter },
     { pagina: "entrenamiento", titulo: "Entrenamiento", icono: Activity },
     { pagina: "mapas", titulo: "Mapas", icono: Thermometer },
-    { pagina: "gateway", titulo: "Gateway", icono: Radio },
     { pagina: "datasets", titulo: "Datasets", icono: Database },
     { pagina: "carpetas", titulo: "Carpetas", icono: ShieldCheck },
     { pagina: "ayuda", titulo: "Ayuda", icono: CircleHelp },
@@ -83,10 +82,6 @@ export default function App() {
   const actual = servidor?.actual;
   const activa = !!actual;
   const servicio = conectado ? "En línea" : "Sin conectar";
-  const receptor =
-    conectado && actual?.estado === "grabando"
-      ? "Escuchando"
-      : "Sin captura activa";
   const gateway =
     conectado &&
     actual?.ultimaRecepcionUtc &&
@@ -278,7 +273,7 @@ export default function App() {
           <>
             <section className="hero">
               <p className="etiqueta">
-                <Radio size={17} /> PLATAFORMA TELEMÉTRICA EXPERIMENTAL
+                <Radio size={17} /> PLATAFORMA PARA GRABACIÓN DE RSSI
               </p>
               <h1>Sistema de Posicionamiento ESP32</h1>
               <p>
@@ -286,9 +281,6 @@ export default function App() {
                 entrenamiento y calibración de cuadrículas.
                 <br className="solo-escritorio" /> Diseñado para captura ágil.
               </p>
-              <span className="nota-demo">
-                <Info size={15} /> CSV guardados en esta PC
-              </span>
             </section>
             <section className="estado-sistema" aria-label="Estado del sistema">
               <h2>
@@ -309,7 +301,6 @@ export default function App() {
                     <strong>{gateway}</strong>
                   </div>
                 </div>
-                {servidor?.redPrivada && <div className="estado"><ShieldCheck size={19}/><div><small>Red privada</small><strong>{servidor.redPrivada.lista ? "Protegida" : "Sólo esta PC"}</strong></div></div>}
               </div>
             </section>
             <section>
@@ -321,14 +312,15 @@ export default function App() {
                   </span>
                   <h3>Recolección de Datos</h3>
                   <p>
-                    Controla la captura de telemetría RSSI con un recorrido
-                    guiado por zonas o con controles manuales.
+                    Módulo para gestionar capturas de RSSI. Acá se encuentran
+                    las grabaciones guiadas, grabaciones manuales y modo juego.
                   </p>
                   <div className="detalle">
-                    <strong>Dos modos de trabajo:</strong>
+                    <strong>Tres modos de trabajo:</strong>
                     <div className="chips">
                       <span>Guiado por zonas</span>
                       <span>Manual</span>
+                      <span>Juegos</span>
                     </div>
                   </div>
                   <button
@@ -395,26 +387,6 @@ export default function App() {
                   </article>
                 ))}
               </div>
-              <div className="barra-ayuda">
-                <span>
-                  <Info size={20} />
-                  Consulta los parámetros del Gateway y la guía de conexión.
-                </span>
-                <div>
-                  <button
-                    className="boton secundario"
-                    onClick={() => navegar("gateway")}
-                  >
-                    Ajustes de Gateway
-                  </button>
-                  <button
-                    className="boton primario"
-                    onClick={() => navegar("datasets")}
-                  >
-                    Explorar Datasets
-                  </button>
-                </div>
-              </div>
             </section>
           </>
         ) : (
@@ -434,13 +406,11 @@ export default function App() {
                   ? "Preparación de Datos"
                   : pagina === "captura"
                   ? "Recolección de Datos"
-                  : pagina === "gateway"
-                    ? "Ajustes del Gateway"
-                    : pagina === "carpetas"
-                      ? "Carpetas autorizadas"
-                    : pagina === "datasets"
-                      ? "Datasets Recolectados"
-                      : "Guía de Conexión"}
+                  : pagina === "carpetas"
+                  ? "Carpetas autorizadas"
+                  : pagina === "datasets"
+                    ? "Datasets Recolectados"
+                    : "Guía de Conexión"}
               </h1>
               <p>
                 {pagina === "mapas"
@@ -451,92 +421,15 @@ export default function App() {
                   ? "Etiqueta lecturas por zona para entrenar o separa un CSV por jugador."
                   : pagina === "captura"
                   ? "Elige cómo quieres recorrer tu sesión de medición."
-                  : pagina === "gateway"
-                    ? "Parámetros de referencia del sistema actual."
-                    : pagina === "carpetas"
-                      ? "Elige qué carpetas puede usar el sistema desde el hotspot."
-                    : pagina === "datasets"
-                      ? "Consulta los CSV guardados en esta PC."
-                      : "Prepara tus dispositivos y conoce el orden de conexión."}
+                  : pagina === "carpetas"
+                  ? "Elige qué carpetas puede usar el sistema desde el hotspot."
+                  : pagina === "datasets"
+                    ? "Consulta los CSV guardados en esta PC."
+                    : "Prepara tus dispositivos y conoce el orden de conexión."}
               </p>
             </div>
             {pagina === "datasets" && <Datasets />}
-            {pagina === "carpetas" && <CarpetasAutorizadas red={servidor?.redPrivada} />}
-            {pagina === "gateway" && (
-              <div className="layout-captura">
-                <section className="tarjeta configuracion">
-                  <div className="fila">
-                    <h2>Parámetros de referencia</h2>
-                    <Settings2 size={22} />
-                  </div>
-                  <p className="texto-suave">
-                    Valores actuales del receptor y del firmware. Solo lectura.
-                  </p>
-                  <dl className="parametros">
-                    {[
-                      ["Red Wi-Fi", "Hotspot de la PC · credenciales en config.h"],
-                      ["Canal Wi-Fi", "6 · 2.4 GHz"],
-                      [
-                        "Escucha HTTP del receptor",
-                        `${servidor?.receptor.host ?? "0.0.0.0"}:${servidor?.receptor.puertoHttp ?? 8080}`,
-                      ],
-                      ["Endpoint de registros", "/v1/registros"],
-                      [
-                        "Descubrimiento UDP",
-                        "El Gateway anuncia; la PC escucha y responde",
-                      ],
-                      [
-                        "Puerto UDP",
-                        String(servidor?.receptor.puertoUdp ?? 4210),
-                      ],
-                      ["Protocolo", "v3"],
-                    ].map(([titulo, valor]) => (
-                      <div key={titulo}>
-                        <dt>{titulo}</dt>
-                        <dd>{valor}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
-                <section className="tarjeta configuracion">
-                  <h2>Estado de conexión</h2>
-                  <div className="desconectado">
-                    <WifiOff size={32} />
-                    <h3>{gateway}</h3>
-                    <p>
-                      Backend: {servicio}. Receptor: {receptor}. La recepción se
-                      indica cuando llegan registros reales. El Gateway se detecta
-                      por sus anuncios, incluso sin una captura activa.
-                    </p>
-                  </div>
-                  {servidor?.gateway?.error && <p role="alert">{servidor.gateway.error}</p>}
-                  {servidor?.gateway?.dispositivos.map((dispositivo) => (
-                    <dl className="parametros" key={dispositivo.mac}>
-                      <div><dt>Gateway</dt><dd>{dispositivo.mac}</dd></div>
-                      <div><dt>IP en el hotspot</dt><dd>{dispositivo.ip}</dd></div>
-                      <div><dt>Estado</dt><dd>{dispositivo.conectado ? (dispositivo.pcConfirmada ? "Comunicación confirmada" : "Anuncio recibido") : "Sin anuncios recientes"}</dd></div>
-                      <div><dt>Último anuncio</dt><dd>{new Date(dispositivo.ultimaVezUtc).toLocaleTimeString("es-CR")}</dd></div>
-                      <div><dt>Registros recibidos / enviados</dt><dd>{dispositivo.registrosRecibidos} / {dispositivo.registrosEnviados}</dd></div>
-                      <div><dt>Fallos HTTP acumulados</dt><dd>{dispositivo.fallosHttp}</dd></div>
-                    </dl>
-                  ))}
-                  <div className="nota">
-                    <Info size={18} />
-                    <span>
-                      El canal sigue automáticamente al hotspot. El nombre y la clave
-                      de la red se configuran en el firmware del Gateway.
-                    </span>
-                  </div>
-                  <button
-                    className="boton secundario ancho"
-                    onClick={() => navegar("ayuda")}
-                  >
-                    Consultar guía de conexión
-                    <ArrowRight size={18} />
-                  </button>
-                </section>
-              </div>
-            )}
+            {pagina === "carpetas" && <CarpetasAutorizadas />}
             {pagina === "ayuda" && (
               <section className="tarjeta ayuda">
                 <h2>Preparación del sistema</h2>
@@ -552,7 +445,7 @@ export default function App() {
                     ],
                     [
                       "Enciende el Gateway",
-                      "El Gateway se conecta al hotspot con las credenciales de su config.h y anuncia su presencia por UDP. Levanta el backend y consulta Gateway para confirmar la comunicación.",
+                      "El Gateway se conecta al hotspot con las credenciales de su config.h y anuncia su presencia por UDP. Inicia el backend y revisa el estado del Gateway en Inicio.",
                     ],
                     [
                       "Prepara el receptor",

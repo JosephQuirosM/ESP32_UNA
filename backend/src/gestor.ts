@@ -118,8 +118,6 @@ export function validarSolicitud(carga: unknown): SolicitudLectura {
 /** Administra una captura independiente y conserva su resultado en el disco local. */
 export class GestorLecturas {
   public seguridad?: RaicesAutorizadas;
-  public redLista = true;
-  public estadoRed = "La red privada no está configurada.";
   private registros = new Map<string, Captura>();
   private procesos = new Map<string, ChildProcessWithoutNullStreams>();
   private pendientesSalida = new Set<string>();
@@ -309,7 +307,6 @@ export class GestorLecturas {
 
   /** Inicia Python sin shell y reserva un nombre que no sobrescriba otras capturas. */
   iniciar(carga: unknown): Captura {
-    if (!this.redLista) throw new ErrorPeticion(503, "El hotspot no está protegido o no está disponible. Revisa el estado de red en esta PC.");
     const solicitud = validarSolicitud(carga);
     const anterior = this.listar().find(
       (captura) => captura.solicitudId === solicitud.solicitudId,

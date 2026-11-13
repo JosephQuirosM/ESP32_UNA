@@ -3,7 +3,7 @@ import { FolderOpen, ShieldCheck, Trash2 } from "lucide-react";
 import ExploradorAutorizado from "./ExploradorAutorizado";
 
 type Raiz = { id: string; ruta: string; nombre: string };
-export default function CarpetasAutorizadas({ red }: { red?: { lista: boolean; mensaje: string } }) {
+export default function CarpetasAutorizadas() {
   const [token, setToken] = useState("");
   const [raices, setRaices] = useState<Raiz[]>([]);
   const [ruta, setRuta] = useState("");
@@ -51,10 +51,9 @@ export default function CarpetasAutorizadas({ red }: { red?: { lista: boolean; m
   }
   return <section className="tarjeta carpetas-autorizadas">
     <h2><ShieldCheck size={22}/> Carpetas de trabajo</h2>
-    <p>Los dispositivos del hotspot pueden usar archivos y subcarpetas únicamente dentro de estas carpetas. La PC anfitriona decide qué raíces están autorizadas.</p>
-    {red && <p role="status">Red privada: <strong>{red.mensaje}</strong></p>}
+    <p>Los dispositivos que ingresen con el código pueden usar archivos y subcarpetas dentro de estas carpetas. La PC anfitriona decide qué raíces están autorizadas.</p>
     {local && <>
-      {codigo && <p className="codigo-acceso">Código para dispositivos del hotspot: <strong>{codigo}</strong><br/><small>Se renueva al reiniciar el backend. Compártelo sólo con quienes usarán el panel.</small></p>}
+      {codigo && <p className="codigo-acceso">Código para otros dispositivos: <strong>{codigo}</strong><br/><small>Se renueva al reiniciar el backend. Compártelo sólo con quienes usarán el panel.</small></p>}
       <div className="preparacion-elegir-ruta"><input value={ruta} placeholder="Ruta absoluta de una carpeta de esta PC" onChange={e => setRuta(e.target.value)} disabled={ocupado}/><button className="boton secundario" onClick={() => void elegir()} disabled={ocupado}><FolderOpen size={18}/> Explorar</button><button className="boton primario" onClick={() => void agregar()} disabled={ocupado || !ruta.trim()}>Autorizar</button></div>
       <div className="carpetas-lista">{raices.map(r => <article key={r.id}><div><strong>{r.nombre}</strong><small>{r.ruta}</small></div><button className="boton secundario" onClick={() => void quitar(r.id)} disabled={ocupado} aria-label={`Quitar ${r.nombre}`}><Trash2 size={17}/> Quitar</button></article>)}{!raices.length && <p>Aún no hay carpetas autorizadas. Selecciona una para empezar.</p>}</div>
     </>}

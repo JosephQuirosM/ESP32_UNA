@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crearApp } from "./app.js";
 import { GestorLecturas } from "./gestor.js";
 import { RaicesAutorizadas } from "./raicesAutorizadas.js";
 import { AccesoRemoto } from "./accesoRemoto.js";
-import { detectarHotspot } from "./detectarHotspot.js";
 
 function encontrarRaiz() {
   let carpeta = dirname(fileURLToPath(import.meta.url));
@@ -31,77 +31,52 @@ const gestor = new GestorLecturas({
   raiz,
   directorioDatos: process.env.DIRECTORIO_DATOS ?? resolve(raiz, "data/raw"),
   python: process.env.PYTHON_EJECUTABLE ?? (existsSync(entornoPython) ? entornoPython : process.platform === "win32" ? "python" : "python3"),
-  host: "127.0.0.1",
+  host: "0.0.0.0",
   puertoHttp,
   destinoUdp: process.env.RECEPTOR_DESTINO_UDP ?? "192.168.4.255",
   puertoUdp,
   zonaHoraria: process.env.ZONA_HORARIA ?? "America/Costa_Rica",
-}, false);
-gestor.redLista = false;
+});
 const seguridad = new RaicesAutorizadas(gestor.configuracion.directorioDatos);
 gestor.seguridad = seguridad;
 const acceso = new AccesoRemoto();
 const app = crearApp(gestor, gestor.gateway, seguridad, acceso);
-const local = app.listen(puertoBackend, "127.0.0.1", () => console.log(`Panel de esta PC: http://localhost:${puertoBackend}`));
-console.log(`Código para dispositivos del hotspot: ${acceso.codigo}`);
-local.on("error", (error) => { console.error(`No se pudo abrir el panel local: ${error.message}`); process.exitCode = 1; });
-let publico: ReturnType<typeof app.listen> | null = null;
-let ipPublica: string | null = null;
+let ipsPublicadas = new Set<string>();
+let panelListo = false;
+const panel = app.listen(puertoBackend, "0.0.0.0", () => {
+  panelListo = true;
+  console.log(`Panel de esta PC: http://localhost:${puertoBackend}`);
+  console.log(`Código para otros dispositivos: ${acceso.codigo}`);
+  publicarEnlaces();
+});
+panel.on("error", (error) => {
+  console.error(`No se pudo abrir el panel: ${error.message}`);
+  process.exitCode = 1;
+  void cerrar();
+});
 let cerrando = false;
-let sincronizando = false;
 
-function cerrarPublico() {
-  const anterior = publico; publico = null; ipPublica = null;
-  if (anterior) { anterior.closeAllConnections(); anterior.close(); }
-}
-function desconectar(motivo: string) {
-  gestor.redLista = false;
-  gestor.estadoRed = motivo;
-  cerrarPublico();
-  // Se suspende la comunicación, conservando el proceso Python, UUID y CSV.
-  // El receptor cierra su listener por su propia vigilancia y lo reabre cuando
-  // se detecte otra vez el hotspot. La autorización se renueva al reconectar.
-  gestor.gateway.cerrar();
-  gestor.configuracion.host = "127.0.0.1";
-}
-async function comprobarRed() {
-  if (cerrando || sincronizando) return;
-  sincronizando = true;
-  try {
-    const estado = await detectarHotspot(gestor.configuracion.python, raiz);
-    if (cerrando) return;
-    if (!estado) {
-      if (publico || gestor.redLista || gestor.actual()) desconectar("No se detecta el hotspot. La captura abierta espera la reconexión; acceso sólo en esta PC.");
-      else gestor.estadoRed = "No se detecta el hotspot. Acceso disponible sólo en esta PC.";
-      return;
+function publicarEnlaces() {
+  if (!panelListo) return;
+  const actuales = new Set<string>();
+  for (const [interfaz, direcciones] of Object.entries(networkInterfaces())) {
+    for (const direccion of direcciones ?? []) {
+      if (direccion.family !== "IPv4" || direccion.internal || actuales.has(direccion.address)) continue;
+      actuales.add(direccion.address);
+      if (!ipsPublicadas.has(direccion.address))
+        console.log(`Panel en red (${interfaz}): http://${direccion.address}:${puertoBackend}`);
     }
-    if (publico && ipPublica === estado.ip) { gestor.estadoRed = `Hotspot: ${estado.ip}; acceso con código`; return; }
-    if (publico) desconectar("Cambió la dirección del hotspot; reabriendo el panel.");
-    gestor.configuracion.host = estado.ip;
-    const servidor = app.listen(puertoBackend, estado.ip);
-    servidor.once("listening", () => {
-      if (cerrando || publico !== servidor) { servidor.close(); return; }
-      ipPublica = estado.ip;
-      gestor.redLista = true;
-      gestor.estadoRed = `Hotspot: ${estado.ip}; acceso con código`;
-      gestor.gateway.iniciar();
-      console.log(`Panel en el hotspot: http://${estado.ip}:${puertoBackend}`);
-    });
-    servidor.on("error", (error) => { console.error(`No se pudo abrir el panel del hotspot: ${error.message}`); if (publico === servidor) desconectar("No se pudo abrir el panel en el hotspot."); });
-    publico = servidor;
-  } catch (error) {
-    desconectar(`No se pudo comprobar el hotspot: ${(error as Error).message}`);
-  } finally { sincronizando = false; }
+  }
+  ipsPublicadas = actuales;
 }
-void comprobarRed();
-const vigilanciaRed = setInterval(() => void comprobarRed(), 3000);
+const vigilanciaRed = setInterval(publicarEnlaces, 3000);
 
 async function cerrar() {
   if (cerrando) return;
   cerrando = true; clearInterval(vigilanciaRed);
-  cerrarPublico();
+  panel.close();
+  panel.closeAllConnections();
   await gestor.cerrar();
-  local.close(() => { process.exitCode = 0; });
 }
 process.on("SIGINT", cerrar);
 process.on("SIGTERM", cerrar);
