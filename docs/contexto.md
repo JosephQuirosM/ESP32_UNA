@@ -21,7 +21,7 @@ El sistema estima zonas aproximadas mediante fingerprinting RSSI y genera mapas 
 | `backend/src/gestor.ts` | Captura única, idempotencia, procesos y recuperación. |
 | `backend/src/preparacion.ts`, `entrenamiento.ts`, `mapas.ts` | Validación y ejecución de análisis Python. |
 | `shared/lecturas.ts` | Tipos de captura y Gateway compartidos con React. |
-| `frontend/src/App.tsx`, `Lecturas.tsx`, `Cuadricula.tsx` | Navegación y recolección manual/guiada. |
+| `frontend/src/App.tsx`, `Lecturas.tsx`, `VistaCuadricula.tsx` | Navegación y recolección manual/guiada. |
 | `frontend/src/PreparacionDatos.tsx`, `EntrenamientoModelos.tsx`, `MapasCalor.tsx` | Formularios y resultados de análisis. |
 | `python/receptor_gateway.py` | Receptor HTTP, cola y escritor CSV v4; descubrimiento propio en CLI. |
 | `python/analizar_captura.py` | Informe de integridad y diagnóstico con logs seriales. |

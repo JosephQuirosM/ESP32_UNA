@@ -23,7 +23,7 @@ import {
   type SolicitudLectura,
 } from "./api";
 import { dimensionValida, generarZonas, MAXIMO_DIMENSION } from "./cuadricula";
-import Cuadricula from "./Cuadricula";
+import Cuadricula from "./VistaCuadricula";
 import { crearSolicitudId } from "./solicitudId";
 import { cargarRutasPreferidas } from "./rutasPreferidas";
 import ExploradorAutorizado from "./ExploradorAutorizado";

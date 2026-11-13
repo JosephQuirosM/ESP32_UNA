@@ -3,8 +3,8 @@
 constexpr uint8_t PIN_LED_RGB = 2;
 // El hotspot debe usar 2.4 GHz. El canal se obtiene automáticamente al conectarse.
 // Credenciales del hotspot creado por la PC.
-constexpr char NOMBRE_RED[] = "GF63-Thin-10SC";
-constexpr char CLAVE_RED[] = "9876543210";
+constexpr char NOMBRE_RED[] = "Nombre de la red";
+constexpr char CLAVE_RED[] = "Contraseña de la red";
 constexpr uint32_t INTERVALO_RECONEXION_WIFI_MS = 10000;
 constexpr uint16_t PUERTO_DESCUBRIMIENTO_UDP = 4210;
 // Anuncios de radio frecuentes para encontrar el Gateway al recorrer canales.

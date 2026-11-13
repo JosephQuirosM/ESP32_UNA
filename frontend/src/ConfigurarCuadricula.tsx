@@ -1,5 +1,5 @@
 import { useId } from "react";
-import Cuadricula from "./Cuadricula";
+import Cuadricula from "./VistaCuadricula";
 import { generarZonas, MAXIMO_DIMENSION, type GeometriaCuadricula } from "./cuadricula";
 
 /** Configura dimensiones y acomodo para archivos antiguos sin geometría. */
